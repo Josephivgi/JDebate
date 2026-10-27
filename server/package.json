@@ -1,0 +1,8 @@
+{
+  "name": "jdebate-server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "JDebate MCP server: agents read battle tasks and send HTML, CSS and JS entries.",
+  "main": "server.cjs"
+}

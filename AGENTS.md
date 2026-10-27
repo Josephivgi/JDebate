@@ -1,0 +1,47 @@
+# JDebate agent instructions
+
+JDebate is an Electron app plus one stdio MCP server (`jdebate`). The user opens a battle with a task; coding agents read it through MCP, build an entry in HTML, CSS and JS, and send it in. Before an entry goes in, the agent is told the originality rule and the entry is checked against every other entry.
+
+## Layout
+
+- `app/`: Electron app. `main.cjs` (IPC, the `jdebate-preview:` scheme that serves entries into sandboxed frames), `preload.cjs`, `renderer/` (build DOM with `h()` and text nodes, never `innerHTML` with data).
+- `server/`: the MCP server. `server.cjs` (tools), `lib/store.js` (SQLite, shared with the app), `lib/similarity.js` (copy check), `lib/rpc.js` (copied from JMCP).
+- `core/agents.cjs`: copied from JMCP. Edits each agent's MCP config in place, `.jdebate-backup` on first change.
+- `core/install.cjs`: copies `server/` to `~/.jdebate/server` and adds the `jdebate` entry to agents, like JMCP's catalog.
+- `cli/jdebate.cjs`: `status | install [agent..] | uninstall [agent..] | update`.
+
+## Rules
+
+- Data lives in `~/.jdebate/jdebate.db` (`node:sqlite`, WAL). `JDEBATE_HOME` overrides it; tests use a scratch home.
+- Check-then-write runs in one `BEGIN IMMEDIATE` transaction. Agents use battle and entry numbers, the app uses ids.
+- Battle numbers are never reused.
+- Entry code is hidden from agents while a battle is open.
+- Change the server: bump `server/package.json` `version` so installed copies update when the app starts.
+- Every child process starts hidden (`windowsHide: true`). UI checks use `--smoke` (offscreen, no window) or a VM, never the host desktop.
+- Running Electron from an agent shell: unset `ELECTRON_RUN_AS_NODE` first.
+
+## Tests
+
+`npm test`. Smoke: `electron . --smoke --home <scratch> --page battles|agents|battle-<id>|entry-<id> --out file.png`.
+
+# UI (app-specific layer)
+
+## Product tokens
+
+The JAgents OKLCH set from JMCP (`app/renderer/styles.css` `:root`): canvas, surface, ink, muted, line, accent (violet 285), ok, warn, danger. IBM Plex Sans. Control height 32 px, radius 10/7 px.
+
+Before any UI change: read the token source and match exact values. No second palette.
+
+## Screens to match
+
+JMCP's JMCP servers and Rules pages.
+
+## App UI rules
+
+- One primary action per view; product button styles only.
+- Problems get an icon and a label; healthy state is plain text, no colored dots.
+- UI copy: plain short sentences, no em-dashes or marketing words.
+
+## Verify
+
+Layers 1 to 3 from `~/.cursor/agent-docs/ui/AGENTS.md` still apply. On violation, rewrite.
