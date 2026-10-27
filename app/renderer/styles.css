@@ -171,6 +171,10 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
 .card.won { border-color: var(--accent-line); box-shadow: 0 0 0 1px var(--accent-line), var(--shadow); }
 .frame-wrap { height: 240px; border-bottom: 1px solid var(--line); background: #fff; }
 .frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+.frame-box { position: relative; height: 100%; }
+.frame-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; background: var(--surface); color: var(--muted); font-size: 13px; }
+.frame-note[hidden] { display: none; }
+.frame-note svg { flex: none; color: var(--warn-text); }
 .card-body { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; }
 .card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .card-title { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

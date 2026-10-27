@@ -283,8 +283,35 @@ function cardBody(e) {
   );
 }
 
+// Loads at once (frames are on screen, lazy only adds a wait). A frame that
+// has not loaded in 3 seconds is loaded again; after two tries it says so
+// and offers a reload instead of staying blank.
 function frame(id, label) {
-  return h("iframe", { class: "frame", src: "jdebate-preview://entry/" + id, sandbox: "allow-scripts", title: label, loading: "lazy", referrerpolicy: "no-referrer" });
+  const src = "jdebate-preview://entry/" + id;
+  const el = h("iframe", { class: "frame", src, sandbox: "allow-scripts", title: label, referrerpolicy: "no-referrer" });
+  const note = h("div", { class: "frame-note", role: "status", hidden: true });
+  let tries = 0;
+  let timer = 0;
+  const load = () => {
+    clearTimeout(timer);
+    note.hidden = true;
+    el.src = src + "?try=" + ++tries;
+    watch();
+  };
+  const watch = () => {
+    timer = setTimeout(() => {
+      if (!el.isConnected) return;
+      if (tries < 2) return load();
+      note.hidden = false;
+      note.replaceChildren(icon(I.warn, 14), h("span", { text: "This preview did not load." }), h("button", { class: "btn small", onclick: () => { tries = 0; load(); } }, "Reload"));
+    }, 3000);
+  };
+  el.addEventListener("load", () => {
+    clearTimeout(timer);
+    note.hidden = true;
+  });
+  watch();
+  return h("div", { class: "frame-box" }, el, note);
 }
 
 function card(e) {
@@ -548,5 +575,5 @@ function render() {
     $main.replaceChildren(h("div", { class: "page" }, h("div", { class: "error-box", text: e.message })));
   }
   document.documentElement.dataset.ready = "1";
-  setInterval(() => refresh(false), 2000);
+  setInterval(() => refresh(false), 1000);
 })();

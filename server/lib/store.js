@@ -24,27 +24,40 @@ function dataHome(home) {
   return process.env.JDEBATE_HOME ? path.resolve(process.env.JDEBATE_HOME) : path.join(os.homedir(), ".jdebate");
 }
 
+// Database files whose tables this process already made. The setup below
+// writes (INSERT OR IGNORE), so running it on every read would take the write
+// lock and wait behind an agent's submit; the app's preview frames read here.
+const ready = new Set();
+
 function withDb(home, fn) {
   const dir = dataHome(home);
-  fs.mkdirSync(dir, { recursive: true });
-  const db = new DatabaseSync(path.join(dir, "jdebate.db"));
+  const file = path.join(dir, "jdebate.db");
+  if (ready.has(file) && !fs.existsSync(file)) ready.delete(file);
+  if (!ready.has(file)) fs.mkdirSync(dir, { recursive: true });
+  const db = new DatabaseSync(file);
   try {
-    db.exec(
-      "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;" +
-        "CREATE TABLE IF NOT EXISTS battles (id TEXT PRIMARY KEY, num INTEGER NOT NULL UNIQUE, title TEXT NOT NULL, task TEXT NOT NULL, status TEXT NOT NULL, winner_id TEXT, created_at INTEGER NOT NULL, closed_at INTEGER);" +
-        "CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY, battle_id TEXT NOT NULL REFERENCES battles(id) ON DELETE CASCADE, num INTEGER NOT NULL, agent TEXT NOT NULL, client TEXT NOT NULL, title TEXT NOT NULL, html TEXT NOT NULL, css TEXT NOT NULL, js TEXT NOT NULL, notes TEXT NOT NULL, how_made TEXT NOT NULL, matches TEXT NOT NULL, key_hash TEXT NOT NULL, replaced_by TEXT, removed INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, UNIQUE (battle_id, num));" +
-        "CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, battle_id TEXT NOT NULL REFERENCES battles(id) ON DELETE CASCADE, agent TEXT NOT NULL, client TEXT NOT NULL, title TEXT NOT NULL, html TEXT NOT NULL, css TEXT NOT NULL, js TEXT NOT NULL, notes TEXT NOT NULL, replaces TEXT, matches TEXT NOT NULL, created_at INTEGER NOT NULL, used_at INTEGER);" +
-        "CREATE TABLE IF NOT EXISTS stamp (id INTEGER PRIMARY KEY CHECK (id = 1), value INTEGER NOT NULL);" +
-        "INSERT OR IGNORE INTO stamp (id, value) VALUES (1, 0);" +
-        // The last battle number handed out. Numbers are never used twice,
-        // so an agent told "battle 3" never lands in a newer battle.
-        "CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY KEY CHECK (id = 1), battle INTEGER NOT NULL);" +
-        "INSERT OR IGNORE INTO counter (id, battle) VALUES (1, 0);",
-    );
+    db.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
+    if (!ready.has(file)) setup(db);
+    ready.add(file);
     return fn(db);
   } finally {
     db.close();
   }
+}
+
+function setup(db) {
+  db.exec(
+    "PRAGMA journal_mode=WAL;" +
+      "CREATE TABLE IF NOT EXISTS battles (id TEXT PRIMARY KEY, num INTEGER NOT NULL UNIQUE, title TEXT NOT NULL, task TEXT NOT NULL, status TEXT NOT NULL, winner_id TEXT, created_at INTEGER NOT NULL, closed_at INTEGER);" +
+      "CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY, battle_id TEXT NOT NULL REFERENCES battles(id) ON DELETE CASCADE, num INTEGER NOT NULL, agent TEXT NOT NULL, client TEXT NOT NULL, title TEXT NOT NULL, html TEXT NOT NULL, css TEXT NOT NULL, js TEXT NOT NULL, notes TEXT NOT NULL, how_made TEXT NOT NULL, matches TEXT NOT NULL, key_hash TEXT NOT NULL, replaced_by TEXT, removed INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, UNIQUE (battle_id, num));" +
+      "CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, battle_id TEXT NOT NULL REFERENCES battles(id) ON DELETE CASCADE, agent TEXT NOT NULL, client TEXT NOT NULL, title TEXT NOT NULL, html TEXT NOT NULL, css TEXT NOT NULL, js TEXT NOT NULL, notes TEXT NOT NULL, replaces TEXT, matches TEXT NOT NULL, created_at INTEGER NOT NULL, used_at INTEGER);" +
+      "CREATE TABLE IF NOT EXISTS stamp (id INTEGER PRIMARY KEY CHECK (id = 1), value INTEGER NOT NULL);" +
+      "INSERT OR IGNORE INTO stamp (id, value) VALUES (1, 0);" +
+      // The last battle number handed out. Numbers are never used twice,
+      // so an agent told "battle 3" never lands in a newer battle.
+      "CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY KEY CHECK (id = 1), battle INTEGER NOT NULL);" +
+      "INSERT OR IGNORE INTO counter (id, battle) VALUES (1, 0);",
+  );
 }
 
 function tx(home, fn) {
