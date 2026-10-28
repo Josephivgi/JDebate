@@ -5,6 +5,10 @@
   "license": "MIT",
   "author": "Josephivgi",
   "description": "JDebate: open a battle, let coding agents send HTML, CSS and JS entries through MCP, and pick the winner.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Josephivgi/JDebate.git"
+  },
   "main": "app/main.cjs",
   "bin": {
     "jdebate": "cli/jdebate.cjs"
@@ -13,9 +17,11 @@
     "start": "electron .",
     "smoke": "electron . --smoke",
     "test": "node --test --test-concurrency=1 test/*.test.cjs",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "release": "electron-builder --win --publish always"
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "jsonc-parser": "^3.3.1",
     "smol-toml": "^1.4.2"
   },
@@ -26,10 +32,35 @@
   "build": {
     "appId": "com.josephivgi.jdebate",
     "productName": "JDebate",
-    "directories": { "output": "dist" },
+    "directories": {
+      "output": "dist"
+    },
     "asar": false,
-    "files": ["app/**", "core/**", "cli/**", "server/**", "package.json", "!**/test/**", "!**/*.jdebate-tmp"],
-    "win": { "target": "nsis", "icon": "app/assets/icon.ico" },
-    "nsis": { "oneClick": true, "perMachine": false, "artifactName": "JDebate-Setup-${version}.${ext}" }
+    "files": [
+      "app/**",
+      "core/**",
+      "cli/**",
+      "server/**",
+      "package.json",
+      "!**/test/**",
+      "!**/*.jdebate-tmp"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "app/assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "JDebate-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Josephivgi",
+        "repo": "JDebate",
+        "releaseType": "draft"
+      }
+    ]
   }
 }

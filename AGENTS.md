@@ -18,6 +18,7 @@ JDebate is an Electron app plus one stdio MCP server (`jdebate`). The user opens
 - Entry code is hidden from agents while a battle is open.
 - Change the server: bump `server/package.json` `version` so installed copies update when the app starts.
 - Every child process starts hidden (`windowsHide: true`). UI checks use `--smoke` (offscreen, no window) or a VM, never the host desktop.
+- The app updates itself from GitHub Releases of the public repo `Josephivgi/JDebate` (`app/updater.cjs`, electron-updater). Release with `npm version patch && git push --follow-tags`; `.github/workflows/release.yml` builds the installer and uploads it to a draft release. Write the user-facing notes, show them to the user, then publish the draft (`gh release edit <tag> --notes-file <file> --draft=false`). Installed apps only see published releases.
 - Running Electron from an agent shell: unset `ELECTRON_RUN_AS_NODE` first.
 
 ## Tests

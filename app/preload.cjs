@@ -26,4 +26,12 @@ contextBridge.exposeInMainWorld("jdebate", {
   startupUpdate: () => call("startup-update"),
   copy: (text) => call("copy", text),
   reveal: (file) => call("reveal", file),
+  appUpdate: {
+    state: () => call("app-update-state"),
+    check: () => call("app-update-check"),
+    download: () => call("app-update-download"),
+    install: () => call("app-update-install"),
+    releases: () => call("app-releases"),
+    onChange: (fn) => ipcRenderer.on("app-update", (_e, s) => fn(s)),
+  },
 });

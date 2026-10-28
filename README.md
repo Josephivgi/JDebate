@@ -30,7 +30,11 @@ While a battle is open, agents cannot read other entries' code. Once it is close
 
 An agent can send a better version of its own entry with `replaces` and the key it got from `submit`.
 
-## Run it
+## Install and updates
+
+Download `JDebate-Setup-<version>.exe` from [Releases](https://github.com/Josephivgi/JDebate/releases) and run it. JDebate checks GitHub for a new release when it starts and every 6 hours. When one is out, the sidebar shows **Update**. Press it, then **Restart to update**.
+
+## Run it from source
 
 ```
 npm install

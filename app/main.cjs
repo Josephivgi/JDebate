@@ -13,6 +13,7 @@ const { app, BrowserWindow, ipcMain, shell, nativeTheme, protocol, clipboard } =
 const store = require("../server/lib/store.js");
 const install = require("../core/install.cjs");
 const { compose, CSP } = require("../core/preview.cjs");
+const { createUpdater, RELEASES_URL } = require("./updater.cjs");
 
 const argv = process.argv.slice(1);
 const flag = (name) => {
@@ -73,6 +74,29 @@ handle("reveal", (file) => {
 });
 let startup = Promise.resolve(null);
 handle("startup-update", () => startup);
+// Updates for JDebate itself, from GitHub Releases. Created when the app is
+// ready; the window gets each change as an "app-update" event.
+let appUpdater = null;
+const UPDATE_EVERY = 6 * 60 * 60 * 1000;
+function startUpdater() {
+  appUpdater = createUpdater({
+    updater: app.isPackaged ? require("electron-updater").autoUpdater : null,
+    packaged: app.isPackaged && !SMOKE,
+    version: app.getVersion(),
+    onChange: (s) => {
+      for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send("app-update", s);
+    },
+  });
+  if (app.isPackaged && !SMOKE) {
+    setTimeout(() => appUpdater.check(), 8000);
+    setInterval(() => appUpdater.check(), UPDATE_EVERY).unref();
+  }
+}
+handle("app-update-state", () => appUpdater.state());
+handle("app-update-check", () => appUpdater.check());
+handle("app-update-download", () => appUpdater.download());
+handle("app-update-install", () => appUpdater.install());
+handle("app-releases", () => shell.openExternal(RELEASES_URL).then(() => true));
 
 function previewResponse(url) {
   const u = new URL(url);
@@ -151,6 +175,7 @@ app.whenReady().then(() => {
     }
   });
   // Bring the installed jdebate server up to this version before agents use it.
+  startUpdater();
   startup = install.update(HOME).catch((e) => ({ updated: false, error: String(e.message || e), results: [] }));
   const win = createWindow();
   if (SMOKE) {

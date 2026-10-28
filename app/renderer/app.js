@@ -135,8 +135,55 @@ function renderSide() {
     const n = inst.agents.filter((a) => a.installed).length;
     foot.push(h("div", { text: n ? "jdebate is in " + plural(n, "agent", "agents") : "jdebate is not in any agent yet" }));
   }
+  const upd = appUpdateView();
+  if (upd) foot.push(upd);
   document.getElementById("side-foot").replaceChildren(...foot);
 }
+
+// ---- JDebate updates (GitHub Releases) ----
+
+let appUpd = null; // {status, version, latest, percent, error}
+let appUpdErr = "";
+
+function appUpdateAct(fn) {
+  appUpdErr = "";
+  fn().catch((e) => ((appUpdErr = e.message), renderSide()));
+}
+
+function appUpdateView() {
+  const u = appUpd;
+  if (!u) return null;
+  const line = (text, cls) => h("div", { class: cls || "", text });
+  const btn = (label, onclick, primary) => h("button", { class: "btn small" + (primary ? " primary" : ""), onclick }, label);
+  const kids = [line("JDebate " + u.version, "side-ver")];
+  if (u.status === "source") {
+    kids.push(line("Running from source. Install JDebate from GitHub Releases to update here."));
+    kids.push(btn("Releases", () => appUpdateAct(api.appUpdate.releases)));
+  } else if (u.status === "checking") {
+    kids.push(line("Checking for updates…"));
+  } else if (u.status === "available") {
+    kids.push(line("JDebate " + u.latest + " is out."));
+    kids.push(btn("Update", () => appUpdateAct(api.appUpdate.download), true));
+  } else if (u.status === "downloading") {
+    kids.push(line("Downloading " + u.latest + ": " + u.percent + "%"));
+  } else if (u.status === "ready") {
+    kids.push(line("JDebate " + u.latest + " is ready. JDebate closes, updates and opens again."));
+    kids.push(btn("Restart to update", () => appUpdateAct(api.appUpdate.install), true));
+  } else if (u.status === "installing") {
+    kids.push(line("Installing JDebate " + u.latest + ". JDebate closes now, a small window shows the install, then JDebate opens again by itself."));
+  } else {
+    if (u.status === "current") kids.push(line("Up to date."));
+    if (u.status === "error") kids.push(line(u.error, "bad"));
+    kids.push(btn(u.status === "error" ? "Try again" : "Check for updates", () => appUpdateAct(api.appUpdate.check)));
+  }
+  if (appUpdErr) kids.push(line(appUpdErr, "bad"));
+  return h("div", { class: "side-upd", role: "status", "aria-label": "JDebate updates" }, kids);
+}
+
+api.appUpdate.onChange((s) => {
+  appUpd = s;
+  renderSide();
+});
 
 const openBattles = () => battles.filter((b) => b.status === "open");
 
@@ -562,7 +609,7 @@ function render() {
 
 (async function start() {
   try {
-    [battles, inst, stamp] = await Promise.all([api.battles(), api.installState(), api.stamp()]);
+    [battles, inst, stamp, appUpd] = await Promise.all([api.battles(), api.installState(), api.stamp(), api.appUpdate.state().catch(() => null)]);
     if (page.startsWith("battle:") || page.startsWith("entry:")) await loadPage();
     render();
     api.startupUpdate().then(async (u) => {
