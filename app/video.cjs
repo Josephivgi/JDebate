@@ -12,20 +12,21 @@ const WIDTH = 1280;
 const HEIGHT = 720;
 const FPS = 30;
 
-function ffmpegArgs(out, seconds) {
+function ffmpegArgs(out, seconds, width = WIDTH, height = HEIGHT) {
   return [
     "-y", "-loglevel", "error",
-    "-f", "rawvideo", "-pix_fmt", "bgra", "-s", WIDTH + "x" + HEIGHT, "-r", String(FPS), "-i", "-",
+    "-f", "rawvideo", "-pix_fmt", "bgra", "-s", width + "x" + height, "-r", String(FPS), "-i", "-",
     "-t", String(seconds), "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
     out,
   ];
 }
 
-function record({ url, out, seconds = 30, ffmpeg = process.env.JDEBATE_FFMPEG || "ffmpeg" }) {
+// width and height: the battle's video size, 1280x720 unless it says otherwise.
+function record({ url, out, seconds = 30, width = WIDTH, height = HEIGHT, ffmpeg = process.env.JDEBATE_FFMPEG || "ffmpeg" }) {
   return new Promise((resolve, reject) => {
     const win = new BrowserWindow({
-      width: WIDTH,
-      height: HEIGHT,
+      width,
+      height,
       show: false,
       useContentSize: true,
       webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
@@ -34,7 +35,7 @@ function record({ url, out, seconds = 30, ffmpeg = process.env.JDEBATE_FFMPEG ||
     win.webContents.on("will-navigate", (e) => e.preventDefault());
     win.webContents.setAudioMuted(true);
 
-    const proc = spawn(ffmpeg, ffmpegArgs(out, seconds), { windowsHide: true, stdio: ["pipe", "ignore", "pipe"] });
+    const proc = spawn(ffmpeg, ffmpegArgs(out, seconds, width, height), { windowsHide: true, stdio: ["pipe", "ignore", "pipe"] });
     let stderr = "";
     let done = false;
     let frame = null;
@@ -60,7 +61,7 @@ function record({ url, out, seconds = 30, ffmpeg = process.env.JDEBATE_FFMPEG ||
 
     const bitmap = (image) => {
       const s = image.getSize();
-      return (s.width === WIDTH && s.height === HEIGHT ? image : image.resize({ width: WIDTH, height: HEIGHT })).toBitmap();
+      return (s.width === width && s.height === height ? image : image.resize({ width, height })).toBitmap();
     };
     win.webContents.setFrameRate(FPS);
     win.webContents.on("paint", (_e, _dirty, image) => {

@@ -55,9 +55,10 @@ function boilerRuns() {
   return boiler;
 }
 
-// The runs of one entry ({html, css, js}), boilerplate removed.
+// The runs of one entry ({html, css, js, extra}), boilerplate removed.
+// extra is the rest of a site's text files, or the source of a video.
 function fingerprint(entry) {
-  const all = runs(tokens([entry.html, entry.css, entry.js].join("\n")));
+  const all = runs(tokens([entry.html, entry.css, entry.js, entry.extra].join("\n")));
   const b = boilerRuns();
   for (const r of b) all.delete(r);
   return all;
@@ -75,7 +76,7 @@ function score(a, b) {
   return same / small;
 }
 
-const norm = (e) => [e.html, e.css, e.js].map((s) => String(s || "").replace(/\s+/g, "")).join("\u0000");
+const norm = (e) => [e.html, e.css, e.js, e.extra].map((s) => String(s || "").replace(/\s+/g, "")).join("\u0000");
 
 // Compare an entry with others. Returns the matches worth reporting, highest
 // first: [{ id, score, level: "block"|"warn", exact }].
@@ -84,7 +85,8 @@ function compare(entry, others) {
   const exactKey = norm(entry);
   const out = [];
   for (const o of others) {
-    const exact = norm(o) === exactKey && exactKey.replace(/\u0000/g, "").length > 0;
+    // media: the sha of a video file. The same file twice is a copy, whatever its source says.
+    const exact = (norm(o) === exactKey && exactKey.replace(/\u0000/g, "").length > 0) || Boolean(entry.media && entry.media === o.media);
     const s = exact ? 1 : score(mine, fingerprint(o));
     if (s === null || s < WARN_AT) continue;
     out.push({ id: o.id, score: Math.round(s * 100) / 100, level: s >= BLOCK_AT ? "block" : "warn", exact });

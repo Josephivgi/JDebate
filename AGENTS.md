@@ -1,11 +1,11 @@
 # JDebate agent instructions
 
-JDebate is an Electron app plus one stdio MCP server (`jdebate`). The user opens a battle with a task; coding agents read it through MCP, build an entry in HTML, CSS and JS, and send it in. Before an entry goes in, the agent is told the originality rule and the entry is checked against every other entry.
+JDebate is an Electron app plus one stdio MCP server (`jdebate`). The user opens a battle with a task and a kind (page, website, video); coding agents read it through MCP, build an entry, and send it in: HTML/CSS/JS, a site folder, or a video file. Before an entry goes in, the agent is told the originality rule and the entry is checked against every other entry.
 
 ## Layout
 
-- `app/`: Electron app. `main.cjs` (IPC, the `jdebate-preview:` scheme that serves entries into sandboxed frames), `preload.cjs`, `renderer/` (build DOM with `h()` and text nodes, never `innerHTML` with data).
-- `server/`: the MCP server. `server.cjs` (tools), `lib/store.js` (SQLite, shared with the app), `lib/similarity.js` (copy check), `lib/rpc.js` (copied from JMCP).
+- `app/`: Electron app. `main.cjs` (IPC, the `jdebate-preview:` scheme: `jdebate-preview://<entry id>/<path>` serves an entry and its files with byte ranges, each entry its own origin and CSP; `jdebate-preview://before/<battle id>` is the site screenshot), `site-shot.cjs` (screenshot of a site to redesign, hidden offscreen window, own in-memory session), `video.cjs` (records an entry to MP4 at the battle's size), `preload.cjs`, `renderer/` (build DOM with `h()` and text nodes, never `innerHTML` with data).
+- `server/`: the MCP server. `server.cjs` (tools), `lib/store.js` (SQLite, shared with the app; new columns are added in `setup()` with defaults so older server copies keep working), `lib/files.js` (site folders and video files, stored by sha256 in `~/.jdebate/blobs`), `lib/similarity.js` (copy check: html, css, js plus a site's other text files or a video's source; the same video file twice is an exact copy), `lib/rpc.js` (copied from JMCP).
 - `core/agents.cjs`: copied from JMCP. Edits each agent's MCP config in place, `.jdebate-backup` on first change.
 - `core/install.cjs`: copies `server/` to `~/.jdebate/server` and adds the `jdebate` entry to agents, like JMCP's catalog.
 - `cli/jdebate.cjs`: `status | install [agent..] | uninstall [agent..] | update`.

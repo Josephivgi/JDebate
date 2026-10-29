@@ -2,7 +2,8 @@
 "use strict";
 
 // JDebate MCP server. The user opens battles in the JDebate app; agents read
-// the task and send an entry (HTML, CSS and JS). Sending is two steps:
+// the task and send an entry: one page (HTML, CSS and JS), a website folder,
+// or for video battles a finished video file. Sending is two steps:
 // prepare_submission tells the agent the originality rule and checks the
 // entry against every other entry, then submit puts it in. Reads and writes
 // ~/.jdebate/jdebate.db on each call.
@@ -19,6 +20,43 @@ const RULE =
   "or from other existing work related to this battle's task (a template, a tutorial, a CodePen, a repo, a past battle, " +
   "something another agent made for you), do not submit it. Throw it away, redo it from scratch yourself, then call " +
   "prepare_submission again. Libraries are not allowed either: entry pages run with no network, so everything must be in your HTML, CSS and JS.";
+
+const KIND_NAME = { page: "Page", website: "Website", video: "Video" };
+
+function sizeText(s) {
+  const [w, h] = s.split("x").map(Number);
+  return w + "x" + h + " (" + (w > h ? "wide 16:9" : w < h ? "tall 9:16" : "square") + ")";
+}
+
+// What to build and how to send it, for each kind of battle.
+function kindText(b) {
+  if (b.kind === "website") {
+    return [
+      b.site_url ? "Kind: website redesign of " + b.site_url : "Kind: website",
+      "",
+      "## What to send",
+      "A whole site. Build it in a folder on this computer with index.html at the top, plus any other pages (about.html, pages/pricing.html), styles, scripts, images and fonts. Link pages with relative links like href=\"about.html\". " +
+        "Send it with prepare_submission folder set to the folder's full path. You can also pass files (path to file text, data: URLs for images) or html for a one-page site.",
+      "JDebate shows the site at 1280 px wide and on a phone, so make both work. The site runs with no network: no CDN links, web fonts or remote images. Put them in the folder.",
+      b.site_url
+        ? "Visit " + b.site_url + " first to see what the site says and does. Keep its content and purpose and redesign it. You may download the site's own text, logo and images into your folder. " +
+          "Write all the HTML, CSS and JS yourself: do not start from the site's code or a template." +
+          (b.before_sha ? "\nA screenshot of the site as it is now: " + store.blobFile(undefined, b.before_sha) + " (PNG)." : "")
+        : "",
+    ].filter(Boolean).join("\n");
+  }
+  if (b.kind === "video") {
+    return [
+      "Kind: video, " + b.video_seconds + " seconds at " + sizeText(b.video_size),
+      "",
+      "## What to send",
+      "Either way works:",
+      "- An animation page (html, or a folder with index.html) that plays the whole video by itself from the moment it loads, sized to fill a " + b.video_size.replace("x", " by ") + " px window. JDebate records it to MP4.",
+      "- A finished video file you made (ffmpeg, Blender, a renderer you wrote). Pass video with the full path to an .mp4 (H.264) or .webm file, and source with the code or script that made it. Keep it close to " + b.video_seconds + " seconds at " + b.video_size + ".",
+    ].join("\n");
+  }
+  return "Kind: page\n\n## What to send\nOne page: html, plus css and js if they are not inside it. A folder or files with index.html works too.";
+}
 
 const str = (description) => ({ type: "string", description });
 const num = (description) => ({ type: "integer", description });
@@ -47,15 +85,19 @@ const TOOLS = [
       properties: {
         battle: num("Battle number"),
         title: str("Short name for your entry"),
-        html: str("The page. A full document or just the body content."),
-        css: str("Styles. Optional if they are inside html."),
-        js: str("Script. Optional if it is inside html."),
+        html: str("One page: a full document or just the body content. Send html, folder, files or video, only one."),
+        css: str("With html: styles. Optional if they are inside html."),
+        js: str("With html: script. Optional if it is inside html."),
+        folder: str("A website: full path to a folder on this computer with index.html at its top, plus other pages, styles, scripts, images and fonts."),
+        files: { type: "object", additionalProperties: { type: "string" }, description: "A website sent inline: relative path to file text, e.g. {\"index.html\": \"...\", \"about.html\": \"...\", \"logo.png\": \"data:image/png;base64,...\"}. Needs index.html." },
+        video: str("Video battles only: full path to a finished .mp4 (H.264) or .webm file on this computer."),
+        source: str("With video: the code or script you used to make the video. It is checked for copies like any other entry."),
         notes: str("Anything the judge should know: how to use it, what to try."),
         agent: str("Who you are: agent and model, e.g. Claude Code (claude-opus-5-5)"),
         replaces: num("Only to send a better version of your own entry: its entry number."),
         key: str("With replaces: the key you got when you submitted that entry."),
       },
-      required: ["battle", "title", "html", "agent"],
+      required: ["battle", "title", "agent"],
       additionalProperties: false,
     },
   },
@@ -85,9 +127,12 @@ let client = "";
 
 const when = (t) => new Date(t).toISOString().slice(0, 16).replace("T", " ");
 const pct = (s) => Math.round(s * 100) + "%";
+const mb = (n) => (n / 1048576).toFixed(1) + " MB";
+const clip = (t) => (t.length > 60000 ? t.slice(0, 60000) + "\n… (cut at 60000 characters)" : t);
 
 function battleLine(b) {
-  return "- Battle " + b.num + ": " + b.title + " (" + b.status + ", " + b.entries + (b.entries === 1 ? " entry" : " entries") + ")";
+  const kind = b.kind && b.kind !== "page" ? KIND_NAME[b.kind].toLowerCase() + ", " : "";
+  return "- Battle " + b.num + ": " + b.title + " (" + kind + b.status + ", " + b.entries + (b.entries === 1 ? " entry" : " entries") + ")";
 }
 
 function matchLine(m) {
@@ -117,6 +162,8 @@ function call(name, a) {
       "",
       "## Task",
       b.task,
+      "",
+      kindText(b),
       "",
       "## Rules",
       RULE,
@@ -162,6 +209,8 @@ function call(name, a) {
         .map((e) => {
           const top = "## Entry " + e.num + ": " + e.title + "\nby " + e.agent + ", " + when(e.created_at) + (e.id === b.winner_id ? ", winner" : "") + "\nHow it was made: " + e.how_made;
           if (b.status === "open") return top;
+          if (e.format === "video") return top + "\nVideo: " + e.files[0].path + ", " + mb(e.files[0].size) + "\n\nSource:\n```\n" + clip(e.extra) + "\n```";
+          if (e.format === "site") return top + "\nFiles: " + e.files.map((f) => f.path).join(", ") + "\n\n```html\n" + clip(e.html) + "\n```" + (e.extra ? "\nThe other text files, joined:\n```\n" + clip(e.extra) + "\n```" : "");
           return top + "\n\n```html\n" + e.html + "\n```" + (e.css ? "\n```css\n" + e.css + "\n```" : "") + (e.js ? "\n```js\n" + e.js + "\n```" : "");
         })
         .join("\n\n") +
@@ -186,7 +235,7 @@ const methods = {
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: "jdebate", title: "JDebate", version: VERSION },
       instructions:
-        "JDebate runs battles: the user opens one in the JDebate app with a task, and agents each build an entry (HTML, CSS, JS). " +
+        "JDebate runs battles: the user opens one in the JDebate app with a task, and agents each build an entry: a page (HTML, CSS, JS), a website (a folder of pages and images) or a video. " +
         "Read the task with battle_read, build it yourself, then send it with prepare_submission and submit.\n\n" + RULE +
         (open.length ? "\n\nOpen battles:\n" + open.map(battleLine).join("\n") : "\n\nNo battle is open right now."),
     };

@@ -196,16 +196,54 @@ function isBattlePage(bid) {
 
 // ---- Battles page ----
 
-let draft = { title: "", task: "" };
+const blankDraft = () => ({ title: "", task: "", kind: "page", site: "", videoSeconds: "30", videoSize: "1280x720" });
+let draft = blankDraft();
+
+// What each kind of battle asks agents for.
+const KINDS = [
+  { id: "page", label: "Page", hint: "One page in HTML, CSS and JS.", title: "Weather card", task: "Build a weather card for one city with a 5 day forecast. Plain HTML, CSS and JS. It should look good at 360 px and 1280 px wide." },
+  { id: "website", label: "Website", hint: "A whole site with pages and images. Give a site to redesign, or leave it blank for a new one.", title: "Redesign of our home page", task: "Redesign this site. Keep what it says and who it is for, and make it clearer and better looking. Include the home page and at least one inner page. It must work on a phone and on a 1280 px screen." },
+  { id: "video", label: "Video", hint: "A clip. Agents send an animation page that JDebate records, or a video file they made.", title: "30 second product demo", task: "Make a 30 second demo video for JVoice. Show what it does in three steps, with large readable text and a clear ending." },
+];
+const kindOf = (id) => KINDS.find((k) => k.id === id) || KINDS[0];
+const SIZES = [["1280x720", "Wide (16:9)"], ["1080x1920", "Tall (9:16)"], ["1080x1080", "Square"]];
+const sizeName = (s) => (SIZES.find((x) => x[0] === s) || [s, s])[1];
+const kindLine = (b) => (b.kind === "website" ? (b.site_url ? "Website redesign of " + b.site_url : "Website") : b.kind === "video" ? "Video, " + b.video_seconds + " s, " + sizeName(b.video_size).toLowerCase() : "Page");
+
+function kindPicker(value, onpick) {
+  return h("div", { class: "tabs", role: "radiogroup", "aria-label": "Kind of battle" }, KINDS.map((k) =>
+    h("button", { type: "button", class: "tab" + (value === k.id ? " on" : ""), role: "radio", "aria-checked": value === k.id ? "true" : "false", onclick: () => onpick(k.id) }, k.label)));
+}
+
+// The fields that go with a kind: the site for a website, length and shape
+// for a video. v holds { site, videoSeconds, videoSize }.
+function kindFields(kind, v, labels) {
+  if (kind === "website") {
+    return h("label", { class: "field" }, h("span", { class: "field-label", text: "Site to redesign (optional)" }),
+      h("input", { type: "text", "aria-label": labels + "Site", inputmode: "url", placeholder: "https://example.com", value: v.site, oninput: (e) => { v.site = e.target.value; } }));
+  }
+  if (kind === "video") {
+    return h("div", { class: "field-row" },
+      h("label", { class: "field" }, h("span", { class: "field-label", text: "Length in seconds" }),
+        h("input", { type: "text", "aria-label": labels + "Length", inputmode: "numeric", class: "short", value: String(v.videoSeconds), oninput: (e) => { v.videoSeconds = e.target.value; } })),
+      h("label", { class: "field" }, h("span", { class: "field-label", text: "Shape" }),
+        h("select", { "aria-label": labels + "Shape", onchange: (e) => { v.videoSize = e.target.value; } }, SIZES.map(([val, name]) => h("option", { value: val, selected: v.videoSize === val }, name + ", " + val.replace("x", " × "))))),
+    );
+  }
+  return null;
+}
 
 function battlesPage() {
   const ready = draft.title.trim() && draft.task.trim();
+  const k = kindOf(draft.kind);
   const form = h("form", { class: "panel panel-pad open-form", onsubmit: (e) => { e.preventDefault(); openBattle(); } },
     h("h2", { text: "Open a battle" }),
+    h("div", { class: "field" }, h("span", { class: "field-label", text: "Kind" }), kindPicker(draft.kind, (id) => { draft.kind = id; render(); }), h("span", { class: "hint", text: k.hint })),
     h("label", { class: "field" }, h("span", { class: "field-label", text: "Title" }),
-      h("input", { type: "text", "aria-label": "Title", "data-focus-key": "new-title", maxlength: "200", placeholder: "Weather card", value: draft.title, oninput: (e) => { draft.title = e.target.value; syncOpen(); } })),
+      h("input", { type: "text", "aria-label": "Title", "data-focus-key": "new-title", maxlength: "200", placeholder: k.title, value: draft.title, oninput: (e) => { draft.title = e.target.value; syncOpen(); } })),
+    kindFields(draft.kind, draft, ""),
     h("label", { class: "field" }, h("span", { class: "field-label", text: "Task for the agents" }),
-      h("textarea", { "aria-label": "Task", rows: "5", placeholder: "Build a weather card for one city with a 5 day forecast. Plain HTML, CSS and JS. It should look good at 360 px and 1280 px wide.", oninput: (e) => { draft.task = e.target.value; syncOpen(); } }, draft.task)),
+      h("textarea", { "aria-label": "Task", rows: "5", placeholder: k.task, oninput: (e) => { draft.task = e.target.value; syncOpen(); } }, draft.task)),
     h("div", { class: "form-foot" },
       h("span", { class: "hint", text: "Agents see this task through the jdebate MCP server. Each one must build its own entry; copies are turned away." }),
       h("button", { class: "btn primary", type: "submit", id: "open-btn", disabled: busy || !ready }, busy ? "Working…" : "Open battle"),
@@ -216,12 +254,12 @@ function battlesPage() {
         h("button", { class: "list-row", onclick: () => go("battle:" + b.id) },
           h("span", { class: "num big", text: String(b.num) }),
           h("span", { class: "list-main" }, h("span", { class: "list-title", text: b.title }), h("span", { class: "list-sub", text: b.task.replace(/\s+/g, " ").slice(0, 160) })),
-          h("span", { class: "list-meta" }, h("span", { class: "state" + (b.status === "open" ? " on" : ""), text: b.status === "open" ? "Open" : "Closed" }), h("span", { class: "hint", text: plural(b.entries, "entry", "entries") + ", " + when(b.created_at) })),
+          h("span", { class: "list-meta" }, h("span", { class: "state" + (b.status === "open" ? " on" : ""), text: b.status === "open" ? "Open" : "Closed" }), h("span", { class: "hint", text: (b.kind && b.kind !== "page" ? kindOf(b.kind).label + ", " : "") + plural(b.entries, "entry", "entries") + ", " + when(b.created_at) })),
         ),
       ))
     : h("div", { class: "panel empty", text: "No battles yet. Open one above, then tell your agents to join it." });
   return h("div", { class: "page" },
-    head("Battles", "Open a battle with a task. Agents build an entry in HTML, CSS and JS and send it through MCP. You look at each one running and pick the winner."),
+    head("Battles", "Open a battle with a task: a page, a website or a video. Agents build an entry and send it through MCP. You look at each one running and pick the winner."),
     installStrip(),
     flashView(),
     form,
@@ -236,8 +274,11 @@ function syncOpen() {
 
 function openBattle() {
   act(async () => {
-    const b = await api.openBattle(draft);
-    draft = { title: "", task: "" };
+    const d = { title: draft.title, task: draft.task, kind: draft.kind };
+    if (draft.kind === "website") d.site = draft.site;
+    if (draft.kind === "video") Object.assign(d, { videoSeconds: draft.videoSeconds, videoSize: draft.videoSize });
+    const b = await api.openBattle(d);
+    draft = blankDraft();
     page = "battle:" + b.id;
     mounted = null;
     return b;
@@ -265,7 +306,21 @@ let editing = null; // {title, task}
 let confirm = null; // {kind: "battle"|"entry", id}
 
 function agentPrompt(b) {
-  return "Join JDebate battle " + b.num + " (\"" + b.title + "\"). Use the jdebate MCP tools: read the task with battle_read " + b.num + ", build your entry yourself from scratch, then send it with prepare_submission and submit. Do not copy, fork or clone anyone else's work.";
+  const what = b.kind === "website"
+    ? (b.site_url ? " It is a website redesign of " + b.site_url + ": build the new site in a folder and send the folder." : " It is a website: build it in a folder and send the folder.")
+    : b.kind === "video" ? " It is a " + b.video_seconds + " second video: send an animation page or a video file you made." : "";
+  return "Join JDebate battle " + b.num + " (\"" + b.title + "\")." + what + " Use the jdebate MCP tools: read the task with battle_read " + b.num + ", build your entry yourself from scratch, then send it with prepare_submission and submit. Do not copy, fork or clone anyone else's work.";
+}
+
+// How entries of a battle are shown. page: as is. website: a 1280 px wide
+// screen scaled to fit. video: the battle's frame size, letterboxed.
+function viewOf(b, phone) {
+  if (b && b.kind === "website") return phone ? { mode: "phone", w: 390 } : { mode: "width", w: 1280, h: 800 };
+  if (b && b.kind === "video") {
+    const [w, hh] = b.video_size.split("x").map(Number);
+    return { mode: "contain", w, h: hh };
+  }
+  return null;
 }
 
 function battleHead(b) {
@@ -273,20 +328,48 @@ function battleHead(b) {
   return head("Battle " + b.num + ": " + b.title, (open ? "Open, taking entries. " : "Closed. ") + "Opened " + when(b.created_at) + ".", [
     open ? h("button", { class: "btn primary", disabled: busy, onclick: () => act(() => api.copy(agentPrompt(b)), "Agent prompt copied. Paste it into each agent you want in this battle.") }, icon(I.copy), "Copy agent prompt") : null,
     h("button", { class: "btn", disabled: busy, onclick: () => act(() => (open ? api.closeBattle(b.id) : api.reopenBattle(b.id)), open ? "Battle closed. Agents can now read every entry's code with battle_results." : "Battle open again.") }, open ? "Close battle" : "Reopen"),
-    h("button", { class: "btn quiet", disabled: busy, onclick: () => { editing = { title: b.title, task: b.task }; render(); focusLater("edit-title"); } }, "Edit"),
+    h("button", { class: "btn quiet", disabled: busy, onclick: () => { editing = { title: b.title, task: b.task, site: b.site_url, videoSeconds: b.video_seconds, videoSize: b.video_size }; render(); focusLater("edit-title"); } }, "Edit"),
     h("button", { class: "btn quiet danger", disabled: busy, onclick: () => { confirm = { kind: "battle", id: b.id }; render(); focusLater("confirm-cancel"); } }, "Delete"),
   ], { label: "Battles", go: () => go("battles") });
 }
 
 function taskPanel(b) {
   if (editing) {
-    return h("form", { class: "panel panel-pad", onsubmit: (e) => { e.preventDefault(); act(async () => { await api.editBattle(b.id, editing); editing = null; }, "Saved."); } },
+    const save = () => {
+      const patch = { title: editing.title, task: editing.task };
+      if (b.kind === "website") patch.site = editing.site;
+      if (b.kind === "video") Object.assign(patch, { videoSeconds: editing.videoSeconds, videoSize: editing.videoSize });
+      return api.editBattle(b.id, patch);
+    };
+    return h("form", { class: "panel panel-pad", onsubmit: (e) => { e.preventDefault(); act(async () => { await save(); editing = null; }, "Saved."); } },
       h("label", { class: "field" }, h("span", { class: "field-label", text: "Title" }), h("input", { type: "text", "aria-label": "Edit title", "data-focus-key": "edit-title", value: editing.title, oninput: (e) => { editing.title = e.target.value; } })),
+      kindFields(b.kind, editing, "Edit "),
       h("label", { class: "field" }, h("span", { class: "field-label", text: "Task" }), h("textarea", { "aria-label": "Edit task", rows: "6", oninput: (e) => { editing.task = e.target.value; } }, editing.task)),
       h("div", { class: "row-actions" }, h("button", { class: "btn primary", type: "submit", disabled: busy }, "Save"), h("button", { class: "btn", type: "button", onclick: () => { editing = null; render(); } }, "Cancel")),
     );
   }
-  return h("section", { class: "panel panel-pad task" }, h("h2", { text: "Task" }), h("p", { class: "task-text", text: b.task }));
+  return h("section", { class: "panel panel-pad task" },
+    h("div", { class: "section-head" }, h("h2", { text: "Task" }), h("span", { class: "note", text: kindLine(b) })),
+    h("p", { class: "task-text", text: b.task }));
+}
+
+// The site a website battle redesigns, as it looks now. Not an entry.
+function beforeCard(b) {
+  const shooting = battleData.shooting;
+  let view;
+  if (b.before_sha) view = h("img", { class: "shot", src: "jdebate-preview://before/" + b.id + "?t=" + b.before_at, alt: "The current site, " + b.site_url });
+  else if (b.before_error) view = h("div", { class: "frame-note", role: "status" }, icon(I.warn, 14), h("span", { text: "No screenshot. " + b.before_error }));
+  else view = h("div", { class: "frame-note", role: "status" }, h("span", { text: "Taking a screenshot of the site…" }));
+  return h("article", { class: "panel card before", "aria-label": "Current site" },
+    h("div", { class: "frame-wrap" }, h("div", { class: "frame-box" }, view)),
+    h("div", { class: "card-body" },
+      h("div", { class: "card-top" }, h("span", { class: "card-title", text: "Current site" })),
+      h("p", { class: "hint", title: b.site_url, text: b.site_url }),
+      h("div", { class: "row-actions" },
+        h("button", { class: "btn small", disabled: busy, onclick: () => act(() => api.openSite(b.id)) }, "Open site"),
+        h("button", { class: "btn small quiet", disabled: busy || shooting, onclick: () => act(() => api.shootSite(b.id)) }, shooting && b.before_sha ? "Taking screenshot…" : "Take again")),
+    ),
+  );
 }
 
 function confirmView(b) {
@@ -306,6 +389,9 @@ function matchNote(e) {
   return h("p", { class: "match", title: "Checked when the entry came in" }, icon(I.warn, 14), Math.round(m.score * 100) + "% like entry " + m.entry + " by " + m.agent + (m.battle !== battleData.battle.num ? " in battle " + m.battle : ""));
 }
 
+const pages = (e) => e.files.filter((f) => /\.html?$/i.test(f.path)).length;
+const formatNote = (e) => (e.format === "site" ? ". " + plural(pages(e), "page", "pages") + ", " + plural(e.files.length, "file", "files") : e.format === "video" ? ". Video file" : "");
+
 function cardBody(e) {
   const b = battleData.battle;
   const win = b.winner_id === e.id;
@@ -316,7 +402,7 @@ function cardBody(e) {
       h("span", { class: "card-title", title: e.title, text: e.title }),
       win ? h("span", { class: "winner" }, icon(I.trophy, 14), "Winner") : null,
     ),
-    h("p", { class: "hint", text: e.agent + ", " + when(e.created_at) }),
+    h("p", { class: "hint", text: e.agent + ", " + when(e.created_at) + formatNote(e) }),
     matchNote(e),
     asking
       ? h("div", { class: "row-actions" },
@@ -336,10 +422,28 @@ function cardBody(e) {
 // Loads at once (frames are on screen, lazy only adds a wait). A frame that
 // has not loaded in 3 seconds is loaded again; after two tries it says so
 // and offers a reload instead of staying blank.
-function frame(id, label) {
-  const src = "jdebate-preview://entry/" + id;
+//
+// view (from viewOf) renders the entry at a fixed size and scales it into
+// the box: "width" fills the width and shows the top, "contain" fits all of
+// it, "phone" is a 390 px wide column.
+function frame(id, label, view) {
+  const src = "jdebate-preview://" + id + "/";
   const el = h("iframe", { class: "frame", src, sandbox: "allow-scripts", title: label, referrerpolicy: "no-referrer" });
   const note = h("div", { class: "frame-note", role: "status", hidden: true });
+  const box = h("div", { class: "frame-box" + (view ? " " + view.mode : "") }, el, note);
+  if (view && view.mode !== "phone") {
+    el.style.width = view.w + "px";
+    const fit = () => {
+      const bw = box.clientWidth;
+      const bh = box.clientHeight;
+      if (!bw || !bh) return;
+      const s = view.mode === "contain" ? Math.min(bw / view.w, bh / view.h) : bw / view.w;
+      const fh = view.mode === "contain" ? view.h : bh / s;
+      el.style.height = fh + "px";
+      el.style.transform = "translate(" + Math.max(0, (bw - view.w * s) / 2) + "px, " + Math.max(0, (bh - fh * s) / 2) + "px) scale(" + s + ")";
+    };
+    new ResizeObserver(fit).observe(box);
+  } else if (view) el.style.width = view.w + "px";
   let tries = 0;
   let timer = 0;
   const load = () => {
@@ -361,12 +465,12 @@ function frame(id, label) {
     note.hidden = true;
   });
   watch();
-  return h("div", { class: "frame-box" }, el, note);
+  return box;
 }
 
 function card(e) {
   return h("article", { class: "panel card" + (battleData.battle.winner_id === e.id ? " won" : ""), "data-entry": e.id },
-    h("div", { class: "frame-wrap" }, frame(e.id, "Entry " + e.num + ": " + e.title)),
+    h("div", { class: "frame-wrap" }, frame(e.id, "Entry " + e.num + ": " + e.title, viewOf(battleData.battle))),
     cardBody(e),
   );
 }
@@ -393,6 +497,14 @@ function renderBattle() {
   // Keyed: keep each entry's frame, redraw only its text and buttons.
   const live = new Set(battleData.entries.map((e) => e.id));
   for (const [id, c] of mounted.cards) if (!live.has(id)) { c.el.remove(); mounted.cards.delete(id); }
+  // The current site comes first, kept apart from the entry cards.
+  const beforeSig = b.kind === "website" && b.site_url ? JSON.stringify([b.site_url, b.before_sha, b.before_error, b.before_at, battleData.shooting, busy]) : "";
+  if (mounted.beforeSig !== beforeSig) {
+    if (mounted.before) mounted.before.remove();
+    mounted.before = beforeSig ? beforeCard(b) : null;
+    if (mounted.before) p.grid.prepend(mounted.before);
+    mounted.beforeSig = beforeSig;
+  }
   const empty = p.grid.querySelector(".cards-empty");
   if (empty && battleData.entries.length) empty.remove();
   for (const e of battleData.entries) {
@@ -418,6 +530,31 @@ function renderBattle() {
 let entryView = null; // entry with code, or false when gone
 let savingVideo = false;
 let tab = "preview";
+let phone = false; // website entries: phone width instead of desktop
+let fileOpen = ""; // Files tab: the file shown
+let fileText = null; // {eid, path, text}
+
+const recordSeconds = (b) => (b && b.kind === "video" ? b.video_seconds : 30);
+const recordHint = (b) => "Records the first " + recordSeconds(b) + " seconds to an MP4" + (b && b.kind === "video" ? " at " + b.video_size.replace("x", " × ") : "") + " you can upload to Reddit or YouTube";
+const size = (n) => (n < 1024 ? n + " B" : n < 1048576 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(1) + " MB");
+
+// A site's files on the left, the one picked on the right.
+function filesView(e) {
+  if (!fileOpen || !e.files.some((f) => f.path === fileOpen)) fileOpen = e.files[0].path;
+  const f = e.files.find((x) => x.path === fileOpen);
+  let body;
+  if (fileText && fileText.eid === e.id && fileText.path === f.path) {
+    body = fileText.text === null ? h("p", { class: "empty", text: f.path + " is not text (" + f.type + ", " + size(f.size) + ")." }) : h("pre", { class: "code" }, h("code", { text: fileText.text }));
+  } else {
+    body = h("p", { class: "empty", text: "Loading…" });
+    api.entryText(e.id, f.path).then((text) => { fileText = { eid: e.id, path: f.path, text }; mounted = null; render(); }, (err) => { flash = { kind: "bad", text: err.message }; render(); });
+  }
+  return h("div", { class: "panel files" },
+    h("ul", { class: "file-list", "aria-label": "Files" }, e.files.map((x) =>
+      h("li", {}, h("button", { class: "file" + (x.path === fileOpen ? " on" : ""), "aria-current": x.path === fileOpen ? "true" : null, onclick: () => { fileOpen = x.path; render(); } }, h("span", { class: "grow mono", text: x.path }), h("span", { class: "hint", text: size(x.size) }))))),
+    h("div", { class: "file-body" }, body),
+  );
+}
 
 function entryPage() {
   const eid = page.slice("entry:".length);
@@ -428,21 +565,36 @@ function entryPage() {
   }
   const e = entryView;
   const b = battles.find((x) => x.id === e.battle_id);
-  // Built once per entry and tab; the rest is redrawn around the running frame.
-  if (!mounted || mounted.eid !== eid || mounted.tab !== tab || !$main.contains(mounted.root)) {
-    const parts = { head: h("div"), flash: h("div", { class: "stack" }), tabs: h("div"), body: h("div"), facts: h("div") };
-    const tabs = [["preview", "Preview"], ["html", "HTML"], ["css", "CSS"], ["js", "JS"]].filter(([k]) => k === "preview" || k === "html" || e[k]);
-    parts.tabs.replaceChildren(h("div", { class: "tabs", role: "tablist" }, tabs.map(([k, label]) => h("button", { class: "tab" + (tab === k ? " on" : ""), role: "tab", "aria-selected": tab === k ? "true" : "false", onclick: () => { tab = k; render(); } }, label))));
-    parts.body.replaceChildren(tab === "preview" ? h("div", { class: "panel big-frame" }, frame(e.id, e.title)) : h("pre", { class: "panel code" }, h("code", { text: e[tab] || "" })));
+  // Built once per entry, tab and view; the rest is redrawn around the running frame.
+  const shape = tab + ":" + phone + ":" + fileOpen;
+  if (!mounted || mounted.eid !== eid || mounted.shape !== shape || !$main.contains(mounted.root)) {
+    const parts = { head: h("div"), flash: h("div", { class: "stack" }), tabs: h("div", { class: "tab-row" }), body: h("div"), facts: h("div") };
+    const tabs = e.format === "site" ? [["preview", "Preview"], ["files", "Files"]]
+      : e.format === "video" ? [["preview", "Preview"], ["extra", "Source"]]
+      : [["preview", "Preview"], ["html", "HTML"], ["css", "CSS"], ["js", "JS"]].filter(([k]) => k === "preview" || k === "html" || e[k]);
+    if (!tabs.some(([k]) => k === tab)) tab = "preview";
+    const group = (items, on, pick, label) => h("div", { class: "tabs", role: "tablist", "aria-label": label }, items.map(([k, text]) => h("button", { class: "tab" + (on === k ? " on" : ""), role: "tab", "aria-selected": on === k ? "true" : "false", onclick: () => pick(k) }, text)));
+    parts.tabs.replaceChildren(...[
+      group(tabs, tab, (k) => { tab = k; render(); }, "Entry"),
+      tab === "preview" && b && b.kind === "website" ? group([["desk", "Desktop"], ["phone", "Phone"]], phone ? "phone" : "desk", (k) => { phone = k === "phone"; render(); }, "Screen size") : null,
+    ].filter(Boolean));
+    parts.body.replaceChildren(
+      tab === "preview" ? h("div", { class: "panel big-frame" + (b && b.kind === "video" ? " dark" : "") }, frame(e.id, e.title, viewOf(b, phone)))
+        : tab === "files" ? filesView(e)
+        : h("pre", { class: "panel code" }, h("code", { text: e[tab] || "" })),
+    );
     parts.facts.replaceChildren(factsPanel(e));
     const root = h("div", { class: "page" }, parts.head, parts.flash, parts.tabs, parts.body, parts.facts);
     $main.replaceChildren(root);
-    mounted = { eid, tab, root, parts };
+    mounted = { eid, shape, root, parts };
   }
+  const record = e.format === "video"
+    ? h("button", { class: "btn", disabled: busy, title: "Opens the video in your video player", onclick: () => act(() => api.entryPlay(e.id), (file) => "Opened in your video player: " + file) }, icon(I.video), "Play video")
+    : h("button", { class: "btn", disabled: busy, title: recordHint(b), onclick: () => { savingVideo = true; act(() => api.entryVideo(e.id), (file) => "Video saved: " + file).finally(() => { savingVideo = false; render(); }); } }, icon(I.video), savingVideo ? "Saving video (" + recordSeconds(b) + " s)…" : "Save video");
   mounted.parts.head.replaceChildren(
     head("Entry " + e.num + ": " + e.title, "By " + e.agent + ", " + when(e.created_at) + (b ? ". Battle " + b.num + ": " + b.title : ""), [
       h("button", { class: "btn", disabled: busy, onclick: () => act(() => api.entryFolder(e.id), (dir) => "Opened " + dir) }, icon(I.folder), "Open folder"),
-      h("button", { class: "btn", disabled: busy, title: "Records the first 30 seconds to an MP4 you can upload to Reddit or YouTube", onclick: () => { savingVideo = true; act(() => api.entryVideo(e.id), (file) => "Video saved: " + file).finally(() => { savingVideo = false; render(); }); } }, icon(I.video), savingVideo ? "Saving video (30 s)…" : "Save video"),
+      record,
       b ? (b.winner_id === e.id
         ? h("span", { class: "winner big" }, icon(I.trophy), "Winner")
         : h("button", { class: "btn primary", disabled: busy, onclick: () => act(() => api.setWinner(b.id, e.id), "Entry " + e.num + " is the winner.") }, icon(I.trophy), "Pick as winner")) : null,
