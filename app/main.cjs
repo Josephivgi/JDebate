@@ -14,6 +14,8 @@ const store = require("../server/lib/store.js");
 const install = require("../core/install.cjs");
 const { compose, CSP } = require("../core/preview.cjs");
 const { createUpdater, RELEASES_URL } = require("./updater.cjs");
+const { writeEntry } = require("../core/export.cjs");
+const video = require("./video.cjs");
 
 const argv = process.argv.slice(1);
 const flag = (name) => {
@@ -71,6 +73,28 @@ handle("reveal", (file) => {
   if (fs.existsSync(f)) shell.showItemInFolder(f);
   else shell.openPath(path.dirname(f));
   return true;
+});
+// The entry's submitted work as files: index.html and about.txt, plus any
+// video saved from it.
+handle("entry-folder", async (eid) => {
+  const { dir } = writeEntry(HOME, id(eid));
+  const err = SMOKE ? "" : await shell.openPath(dir);
+  if (err) throw new Error(err);
+  return dir;
+});
+let recording = null;
+handle("entry-video", async (eid) => {
+  if (recording) throw new Error("A video is already being saved.");
+  const { dir, entry } = writeEntry(HOME, id(eid));
+  const out = path.join(dir, "entry-" + entry.num + ".mp4");
+  recording = video.record({ url: "jdebate-preview://entry/" + entry.id, out, seconds: 30 });
+  try {
+    await recording;
+  } finally {
+    recording = null;
+  }
+  if (!SMOKE) shell.showItemInFolder(out);
+  return out;
 });
 let startup = Promise.resolve(null);
 handle("startup-update", () => startup);

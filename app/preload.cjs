@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld("jdebate", {
   setWinner: (battleId, entryId) => call("winner", battleId, entryId),
   entry: (id) => call("entry", id),
   removeEntry: (id) => call("entry-remove", id),
+  entryFolder: (id) => call("entry-folder", id),
+  entryVideo: (id) => call("entry-video", id),
   installState: () => call("install-state"),
   install: (ids) => call("install", ids),
   uninstall: (ids) => call("uninstall", ids),

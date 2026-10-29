@@ -58,6 +58,8 @@ const I = {
   warn: "M10 3l8 14H2zM10 8v4M10 14.5v.5",
   back: "M12 4l-6 6 6 6",
   copy: "M7 7h9v10H7zM4 13V3h9",
+  folder: "M3 5h5l2 2h7v9H3z",
+  video: "M3 6h10v8H3zM13 9l4-2v6l-4-2",
   trophy: "M6 3h8v4a4 4 0 0 1-8 0zM6 5H3v1a3 3 0 0 0 3 3M14 5h3v1a3 3 0 0 1-3 3M10 11v3M7 17h6M8 14h4v3H8z",
 };
 
@@ -323,6 +325,7 @@ function cardBody(e) {
           h("button", { class: "btn small", "data-focus-key": "confirm-cancel", onclick: () => { confirm = null; render(); } }, "Cancel"))
       : h("div", { class: "row-actions" },
           h("button", { class: "btn small", onclick: () => go("entry:" + e.id) }, "Open"),
+          h("button", { class: "btn small quiet", disabled: busy, title: "Open the folder with this entry's files", onclick: () => act(() => api.entryFolder(e.id)) }, icon(I.folder, 14), "Folder"),
           win
             ? h("button", { class: "btn small quiet", disabled: busy, onclick: () => act(() => api.setWinner(b.id, null), "Winner cleared.") }, "Clear winner")
             : h("button", { class: "btn small", disabled: busy, onclick: () => act(() => api.setWinner(b.id, e.id), "Entry " + e.num + " is the winner.") }, icon(I.trophy, 14), "Pick as winner"),
@@ -413,6 +416,7 @@ function renderBattle() {
 // ---- Entry page ----
 
 let entryView = null; // entry with code, or false when gone
+let savingVideo = false;
 let tab = "preview";
 
 function entryPage() {
@@ -437,6 +441,8 @@ function entryPage() {
   }
   mounted.parts.head.replaceChildren(
     head("Entry " + e.num + ": " + e.title, "By " + e.agent + ", " + when(e.created_at) + (b ? ". Battle " + b.num + ": " + b.title : ""), [
+      h("button", { class: "btn", disabled: busy, onclick: () => act(() => api.entryFolder(e.id), (dir) => "Opened " + dir) }, icon(I.folder), "Open folder"),
+      h("button", { class: "btn", disabled: busy, title: "Records the first 30 seconds to an MP4 you can upload to Reddit or YouTube", onclick: () => { savingVideo = true; act(() => api.entryVideo(e.id), (file) => "Video saved: " + file).finally(() => { savingVideo = false; render(); }); } }, icon(I.video), savingVideo ? "Saving video (30 s)…" : "Save video"),
       b ? (b.winner_id === e.id
         ? h("span", { class: "winner big" }, icon(I.trophy), "Winner")
         : h("button", { class: "btn primary", disabled: busy, onclick: () => act(() => api.setWinner(b.id, e.id), "Entry " + e.num + " is the winner.") }, icon(I.trophy), "Pick as winner")) : null,
