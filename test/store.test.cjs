@@ -156,3 +156,33 @@ test("similarity ignores comments and page boilerplate", () => {
   assert.equal(similarity.compare(a, [Object.assign({ id: "x" }, b)]).length, 0);
   assert.equal(similarity.score(CLOCK, FLIP) < similarity.WARN_AT, true);
 });
+
+test("battles list their agents and winner, and activity shows the newest entries", () => {
+  const home = scratch();
+  const b = store.openBattle(home, { title: "Clock", task: "Build a clock" });
+  assert.deepEqual(store.getBattle(home, b.id).agents, []);
+  assert.equal(store.getBattle(home, b.id).winner, null);
+  assert.deepEqual(store.activity(home), { recent: [], today: 0, total: 0 });
+  send(home, 1, CLOCK, "claude-code");
+  const c = send(home, 1, FLIP, "codex");
+  store.setWinner(home, b.id, c.submitted.entry.id);
+  const row = store.listBattles(home)[0];
+  assert.deepEqual(row.agents, ["claude-code", "codex"]);
+  assert.deepEqual(row.winner, { num: 2, title: "Flip digits", agent: "codex" });
+  const a = store.activity(home);
+  assert.equal(a.total, 2);
+  assert.equal(a.today, 2);
+  assert.deepEqual(a.recent.map((e) => [e.num, e.agent, e.battle_num, e.battle_title]), [[2, "codex", 1, "Clock"], [1, "claude-code", 1, "Clock"]]);
+  assert.equal(a.recent[0].html, undefined, "the feed carries no code");
+  store.removeEntry(home, c.submitted.entry.id);
+  assert.equal(store.activity(home).total, 1);
+});
+
+test("the theme setting is stored and checked", () => {
+  const home = scratch();
+  assert.equal(store.getSetting(home, "theme"), "system");
+  assert.equal(store.setSetting(home, "theme", "dark"), "dark");
+  assert.equal(store.getSetting(home, "theme"), "dark");
+  assert.throws(() => store.setSetting(home, "theme", "pink"), /theme must be one of/);
+  assert.throws(() => store.getSetting(home, "colour"), /Unknown setting/);
+});

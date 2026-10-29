@@ -18,7 +18,6 @@ const { compose, videoPage, guard, cspFor, CSP } = require("../core/preview.cjs"
 const { createUpdater, RELEASES_URL } = require("./updater.cjs");
 const { writeEntry } = require("../core/export.cjs");
 const video = require("./video.cjs");
-const siteShot = require("./site-shot.cjs");
 
 const argv = process.argv.slice(1);
 const flag = (name) => {
@@ -32,9 +31,15 @@ const HOME = flag("--home") || process.env.JDEBATE_TEST_HOME || undefined;
 app.setName("JDebate");
 if (SMOKE) app.disableHardwareAcceleration();
 if (flag("--theme")) nativeTheme.themeSource = flag("--theme");
+else {
+  try {
+    nativeTheme.themeSource = store.getSetting(HOME, "theme");
+  } catch {
+    // A database that cannot be read shows up on the Battles page instead.
+  }
+}
 
-// Entry pages load from jdebate-preview://<entry id>/ in a sandboxed frame;
-// jdebate-preview://before/<battle id> is the screenshot of a site to redesign.
+// Entry pages load from jdebate-preview://<entry id>/ in a sandboxed frame.
 protocol.registerSchemesAsPrivileged([{ scheme: "jdebate-preview", privileges: { standard: true, secure: true } }]);
 
 function handle(name, fn) {
@@ -51,42 +56,25 @@ const id = (v) => String(v || "");
 
 handle("stamp", () => store.stamp(HOME));
 handle("battles", () => store.listBattles(HOME));
-// Screenshots of sites being redesigned, by battle id, while they are taken.
-const shooting = new Set();
-function shootSite(b, again) {
-  if (!b || b.kind !== "website" || !b.site_url || shooting.has(b.id)) return b;
-  if (!again && (b.before_sha || b.before_error)) return b;
-  shooting.add(b.id);
-  const url = b.site_url;
-  siteShot
-    .shoot(url)
-    .then((png) => ({ sha: store.putBlob(HOME, png) }), (e) => ({ error: String((e && e.message) || e) }))
-    .then((r) => {
-      // Done before the write, so the redraw the write causes sees it.
-      shooting.delete(b.id);
-      store.setBefore(HOME, b.id, Object.assign({ url }, r));
-    })
-    .catch(() => shooting.delete(b.id));
-  return b;
-}
-
+handle("activity", () => store.activity(HOME));
+// Light, dark or system. Stored in the database; nativeTheme makes the page's
+// prefers-color-scheme follow it.
+handle("theme", () => store.getSetting(HOME, "theme"));
+handle("theme-set", (v) => {
+  const t = store.setSetting(HOME, "theme", String(v));
+  nativeTheme.themeSource = t;
+  return t;
+});
 handle("battle", (bid) => {
   const b = store.getBattle(HOME, id(bid));
   if (!b) return null;
-  shootSite(b);
-  return { battle: b, entries: store.entries(HOME, b.id, { noCode: true }), shooting: shooting.has(b.id) };
+  return { battle: b, entries: store.entries(HOME, b.id, { noCode: true }) };
 });
 handle("battle-open", (input) => {
   const i = input || {};
-  return shootSite(store.openBattle(HOME, { title: i.title, task: i.task, kind: i.kind, site: i.site, videoSeconds: i.videoSeconds, videoSize: i.videoSize }));
+  return store.openBattle(HOME, { title: i.title, task: i.task, kind: i.kind, videoSeconds: i.videoSeconds, videoSize: i.videoSize });
 });
-handle("battle-edit", (bid, patch) => shootSite(store.editBattle(HOME, id(bid), patch)));
-handle("battle-shoot", (bid) => shootSite(store.getBattle(HOME, id(bid)), true));
-handle("open-site", (bid) => {
-  const b = store.getBattle(HOME, id(bid));
-  if (!b || !/^https?:\/\//.test(b.site_url)) throw new Error("This battle has no site.");
-  return shell.openExternal(b.site_url).then(() => true);
-});
+handle("battle-edit", (bid, patch) => store.editBattle(HOME, id(bid), patch));
 handle("battle-close", (bid) => store.closeBattle(HOME, id(bid)));
 handle("battle-reopen", (bid) => store.reopenBattle(HOME, id(bid)));
 handle("battle-remove", (bid) => store.removeBattle(HOME, id(bid)));
@@ -102,6 +90,13 @@ handle("entry-text", (eid, file) => {
   return fs.readFileSync(f.file, "utf8").slice(0, 400000);
 });
 handle("install-state", () => install.status(HOME));
+// The MCP server entry for an agent JDebate does not know, to paste into its config.
+handle("install-command", () => {
+  const n = install.nodeCommand();
+  const out = { command: n.command, args: [install.status(HOME).serverFile] };
+  if (n.env && Object.keys(n.env).length) out.env = n.env;
+  return out;
+});
 handle("install", async (ids) => Object.assign(await install.install(Array.isArray(ids) ? ids.map(String) : [], HOME), { state: install.status(HOME) }));
 handle("uninstall", (ids) => Object.assign(install.uninstall(Array.isArray(ids) ? ids.map(String) : [], HOME), { state: install.status(HOME) }));
 handle("copy", (text) => {
@@ -196,12 +191,6 @@ function fileResponse(req, f, headers) {
 
 function previewResponse(req) {
   const u = new URL(req.url);
-  if (u.hostname === "before") {
-    const b = store.getBattle(HOME, u.pathname.slice(1));
-    if (!b || !b.before_sha) return notFound();
-    const file = store.blobFile(HOME, b.before_sha);
-    return fileResponse(req, { file, type: "image/png", size: fs.statSync(file).size });
-  }
   // jdebate-preview://entry/<id>: links from before entries had their own origin.
   const legacy = u.hostname === "entry";
   const entry = store.getEntry(HOME, legacy ? u.pathname.slice(1) : u.hostname);

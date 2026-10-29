@@ -42,27 +42,23 @@ function fakeVideo(dir, name, seed) {
 
 const call = (name, args) => methods["tools/call"]({ name, arguments: args });
 
-test("battles have a kind, a site to redesign, and a video length and shape", () => {
+test("battles have a kind, and video battles a length and shape", () => {
   const home = scratch();
   const page = store.openBattle(home, { title: "Clock", task: "Build a clock" });
   assert.equal(page.kind, "page");
-  const web = store.openBattle(home, { title: "Redesign", task: "Redesign it", kind: "website", site: "example.com" });
+  const web = store.openBattle(home, { title: "Bakery", task: "Make a bakery website", kind: "website" });
   assert.equal(web.kind, "website");
-  assert.equal(web.site_url, "https://example.com/");
+  assert.equal(web.site_url, undefined);
   const vid = store.openBattle(home, { title: "Demo", task: "Make a demo", kind: "video", videoSeconds: "15", videoSize: "1080x1920" });
   assert.equal(vid.video_seconds, 15);
   assert.equal(vid.video_size, "1080x1920");
   assert.throws(() => store.openBattle(home, { title: "x", task: "x", kind: "game" }), /kind must be one of/);
-  assert.throws(() => store.openBattle(home, { title: "x", task: "x", kind: "website", site: "ftp://x" }), /https:\/\/ or http/);
   assert.throws(() => store.openBattle(home, { title: "x", task: "x", kind: "video", videoSeconds: 1 }), /from 3 to 600/);
   assert.throws(() => store.openBattle(home, { title: "x", task: "x", kind: "video", videoSize: "640x480" }), /size must be one of/);
-  // A new site clears the old screenshot; a late screenshot of the old site is dropped.
-  store.setBefore(home, web.id, { url: web.site_url, sha: "a".repeat(64) });
-  assert.equal(store.getBattle(home, web.id).before_sha, "a".repeat(64));
-  const moved = store.editBattle(home, web.id, { site: "https://example.org" });
-  assert.equal(moved.before_sha, "");
-  assert.equal(store.setBefore(home, web.id, { url: web.site_url, sha: "b".repeat(64) }), null);
-  assert.equal(store.getBattle(home, web.id).before_sha, "");
+  // Length and shape can be edited; the kind cannot once entries are in.
+  assert.equal(store.editBattle(home, vid.id, { videoSeconds: 45 }).video_seconds, 45);
+  send(home, Object.assign({ battle: vid.num }, CLOCK));
+  assert.throws(() => store.editBattle(home, vid.id, { kind: "page" }), /kind cannot change/);
 });
 
 test("an old database gets the new columns and keeps its battles", () => {
@@ -83,7 +79,7 @@ test("an old database gets the new columns and keeps its battles", () => {
 
 test("a website comes in as a folder, with every page and image", () => {
   const home = scratch();
-  store.openBattle(home, { title: "Site", task: "Redesign", kind: "website", site: "https://example.com" });
+  store.openBattle(home, { title: "Site", task: "Make a bakery website", kind: "website" });
   const root = siteFolder(path.join(home, "site-a"), CLOCK);
   const r = send(home, { battle: 1, title: "New site", folder: root });
   assert.equal(r.prepared.blocked, false);
@@ -155,13 +151,14 @@ test("agents read what to send for each kind, and get a site's files after it cl
   const home = scratch();
   process.env.JDEBATE_HOME = path.join(home, ".jdebate");
   try {
-    const web = store.openBattle(undefined, { title: "Site", task: "Redesign the bakery site", kind: "website", site: "https://example.com" });
+    const web = store.openBattle(undefined, { title: "Site", task: "Make a bakery website", kind: "website" });
     store.openBattle(undefined, { title: "Demo", task: "Make a demo", kind: "video", videoSeconds: 20, videoSize: "1080x1080" });
     const list = (await call("battles", {})).content[0].text;
     assert.match(list, /Battle 1: Site \(website, open, 0 entries\)/);
     assert.match(list, /Battle 2: Demo \(video, open/);
     const read1 = (await call("battle_read", { battle: 1 })).content[0].text;
-    assert.match(read1, /website redesign of https:\/\/example\.com\//);
+    assert.match(read1, /Kind: website\n\n## What to send/);
+    assert.doesNotMatch(read1, /screenshot|redesign/i);
     assert.match(read1, /folder set to the folder's full path/);
     const read2 = (await call("battle_read", { battle: 2 })).content[0].text;
     assert.match(read2, /20 seconds at 1080x1080 \(square\)/);

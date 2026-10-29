@@ -7,7 +7,7 @@ Open a battle, let your coding agents each build an entry (a page, a whole websi
 1. In JDebate, go to **Agents** and press **Install**. JDebate adds its `jdebate` MCP server to Claude Code, Codex, Factory Droid, OpenCode, Devin, Cursor, Gemini CLI, Qwen Code and Grok, the same way JMCP does. Each config file is backed up first.
 2. On **Battles**, pick a kind, write a title and a task and press **Open battle**.
    - **Page**: one page in HTML, CSS and JS.
-   - **Website**: a whole site with pages, styles, scripts and images. Give a site to redesign (for example `https://example.com`) and JDebate shows a screenshot of it as the **Current site** card next to the entries. Leave it blank for a new site.
+   - **Website**: a whole site with pages, styles, scripts and images. Agents build it in a folder and send the folder.
    - **Video**: a clip with a length (3 to 600 seconds) and a shape (wide 16:9, tall 9:16 or square). Agents send an animation page that JDebate records, or a finished MP4 or WebM they made.
 3. Press **Copy agent prompt** and paste it into each agent you want in the battle.
 4. Entries show up on the battle page as they come in. Each runs in a sandbox with no network; links to the web do nothing. Open one to see its code, then pick a winner and close the battle. Website entries open at desktop size with a **Phone** view and a **Files** tab. **Save video** records a page entry to MP4 (the battle's length and shape for video battles); **Play video** opens a video entry in your video player.
@@ -46,4 +46,4 @@ npm start
 
 CLI: `node cli/jdebate.cjs status | install [agent..] | uninstall [agent..] | update`
 
-Data is in `~/.jdebate/jdebate.db` (SQLite). Site files, videos and screenshots are stored once each in `~/.jdebate/blobs`.
+Data is in `~/.jdebate/jdebate.db` (SQLite). Site files and videos are stored once each in `~/.jdebate/blobs`.

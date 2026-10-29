@@ -19,8 +19,8 @@ const files = require("./files.js");
 const MAX_CODE = 400000;
 const MAX_TASK = 20000;
 const DRAFT_MINUTES = 30;
-// What a battle asks for. page: one page. website: a site, often a redesign
-// of site_url, sent as a folder. video: a clip of video_seconds at
+// What a battle asks for. page: one page. website: a site with pages and
+// images, sent as a folder. video: a clip of video_seconds at
 // video_size, sent as an animation page or as a finished video file.
 const KINDS = ["page", "website", "video"];
 const VIDEO_SIZES = ["1280x720", "1080x1920", "1080x1080"];
@@ -62,12 +62,14 @@ function setup(db) {
       // The last battle number handed out. Numbers are never used twice,
       // so an agent told "battle 3" never lands in a newer battle.
       "CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY KEY CHECK (id = 1), battle INTEGER NOT NULL);" +
-      "INSERT OR IGNORE INTO counter (id, battle) VALUES (1, 0);",
+      "INSERT OR IGNORE INTO counter (id, battle) VALUES (1, 0);" +
+      // App settings, such as the theme. Agents never read these.
+      "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
   );
   // Columns added after the first release. Old copies of the server keep
   // working: every new column has a default.
   const add = {
-    battles: ["kind TEXT NOT NULL DEFAULT 'page'", "site_url TEXT NOT NULL DEFAULT ''", "video_seconds INTEGER NOT NULL DEFAULT 30", "video_size TEXT NOT NULL DEFAULT '1280x720'", "before_sha TEXT NOT NULL DEFAULT ''", "before_error TEXT NOT NULL DEFAULT ''", "before_at INTEGER"],
+    battles: ["kind TEXT NOT NULL DEFAULT 'page'", "video_seconds INTEGER NOT NULL DEFAULT 30", "video_size TEXT NOT NULL DEFAULT '1280x720'"],
     // format: html (html, css, js), site (files, index.html first) or video (one video file).
     entries: ["format TEXT NOT NULL DEFAULT 'html'", "extra TEXT NOT NULL DEFAULT ''", "files TEXT NOT NULL DEFAULT '[]'"],
     drafts: ["format TEXT NOT NULL DEFAULT 'html'", "extra TEXT NOT NULL DEFAULT ''", "files TEXT NOT NULL DEFAULT '[]'"],
@@ -125,21 +127,6 @@ function kindOf(v) {
   return k;
 }
 
-// Blank, or a full http(s) address. "example.com" gets https:// in front.
-function siteUrl(v) {
-  let s = text(v, "site", 2000, { optional: true });
-  if (!s) return "";
-  if (!/^[a-z][a-z0-9+.-]*:/i.test(s)) s = "https://" + s;
-  let u;
-  try {
-    u = new URL(s);
-  } catch {
-    throw new Error("The site to redesign must be a web address, like https://example.com.");
-  }
-  if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("The site to redesign must start with https:// or http://.");
-  return u.href;
-}
-
 function videoSeconds(v) {
   if (v === undefined || v === null || v === "") return 30;
   const n = Number(v);
@@ -157,7 +144,6 @@ function videoSize(v) {
 function kindFields(input, all) {
   const out = {};
   if (all || Object.hasOwn(input, "kind")) out.kind = kindOf(input.kind);
-  if (all || Object.hasOwn(input, "site")) out.site_url = siteUrl(input.site);
   if (all || Object.hasOwn(input, "videoSeconds")) out.video_seconds = videoSeconds(input.videoSeconds);
   if (all || Object.hasOwn(input, "videoSize")) out.video_size = videoSize(input.videoSize);
   return out;
@@ -168,7 +154,10 @@ function kindFields(input, all) {
 function battleRow(db, r) {
   if (!r) return null;
   const c = db.prepare("SELECT COUNT(*) AS n FROM entries WHERE battle_id = ? AND removed = 0 AND replaced_by IS NULL").get(r.id).n;
-  return { ...r, entries: c };
+  // Who sent entries, and the winner's number, title and agent, for lists.
+  const agents = db.prepare("SELECT agent FROM entries WHERE battle_id = ? AND removed = 0 AND replaced_by IS NULL GROUP BY agent ORDER BY MIN(num)").all(r.id).map((x) => x.agent);
+  const w = r.winner_id ? db.prepare("SELECT num, title, agent FROM entries WHERE id = ?").get(r.winner_id) : null;
+  return { ...r, entries: c, agents, winner: w ? { num: w.num, title: w.title, agent: w.agent } : null };
 }
 
 function entryRow(r, opts) {
@@ -186,7 +175,7 @@ function entryRow(r, opts) {
 
 // ---- Battles ----
 
-// input: { title, task, kind, site, videoSeconds, videoSize }
+// input: { title, task, kind, videoSeconds, videoSize }
 function openBattle(home, input = {}) {
   const title = text(input.title, "title", 200);
   const task = text(input.task, "task", MAX_TASK);
@@ -196,22 +185,10 @@ function openBattle(home, input = {}) {
     const num = Math.max(last, db.prepare("SELECT COALESCE(MAX(num), 0) AS n FROM battles").get().n) + 1;
     db.prepare("UPDATE counter SET battle = ? WHERE id = 1").run(num);
     const id = crypto.randomUUID();
-    db.prepare("INSERT INTO battles (id, num, title, task, status, created_at, kind, site_url, video_seconds, video_size) VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)").run(
-      id, num, title, task, Date.now(), k.kind, k.site_url, k.video_seconds, k.video_size,
+    db.prepare("INSERT INTO battles (id, num, title, task, status, created_at, kind, video_seconds, video_size) VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?)").run(
+      id, num, title, task, Date.now(), k.kind, k.video_seconds, k.video_size,
     );
     return battleRow(db, db.prepare("SELECT * FROM battles WHERE id = ?").get(id));
-  });
-}
-
-// The app's screenshot of the site a website battle redesigns: a stored
-// PNG (sha) or why it could not be taken. url must still be the battle's
-// site, so a screenshot that finishes after an edit is dropped.
-function setBefore(home, id, { url, sha, error }) {
-  return tx(home, (db) => {
-    const b = findBattle(db, id);
-    if (!b || b.site_url !== url) return null;
-    db.prepare("UPDATE battles SET before_sha = ?, before_error = ?, before_at = ? WHERE id = ?").run(sha || "", error ? String(error).slice(0, 500) : "", Date.now(), b.id);
-    return battleRow(db, findBattle(db, b.id));
   });
 }
 
@@ -256,8 +233,6 @@ function editBattle(home, id, patch) {
     if (changes.kind && changes.kind !== b.kind && db.prepare("SELECT COUNT(*) AS n FROM entries WHERE battle_id = ? AND removed = 0").get(b.id).n) {
       throw new Error("This battle already has entries, so its kind cannot change. Open a new battle instead.");
     }
-    // A new site needs a new screenshot.
-    if (Object.hasOwn(changes, "site_url") && changes.site_url !== b.site_url) Object.assign(changes, { before_sha: "", before_error: "", before_at: null });
     const keys = Object.keys(changes);
     if (keys.length) db.prepare("UPDATE battles SET " + keys.map((k) => k + " = ?").join(", ") + " WHERE id = ?").run(...keys.map((k) => changes[k]), b.id);
     return battleRow(db, findBattle(db, b.id));
@@ -288,6 +263,35 @@ function entries(home, battleId, opts) {
   return withDb(home, (db) =>
     db.prepare("SELECT * FROM entries WHERE battle_id = ? AND removed = 0 AND replaced_by IS NULL ORDER BY num").all(String(battleId)).map((r) => entryRow(r, opts)),
   );
+}
+
+// The newest live entries in every battle, for the app's activity feed,
+// with how many came in over the last day and in all.
+function activity(home, limit = 30) {
+  return withDb(home, (db) => {
+    const live = "FROM entries e JOIN battles b ON b.id = e.battle_id WHERE e.removed = 0 AND e.replaced_by IS NULL";
+    const recent = db.prepare("SELECT e.id, e.num, e.title, e.agent, e.client, e.format, e.created_at, e.battle_id, b.num AS battle_num, b.title AS battle_title " + live + " ORDER BY e.created_at DESC LIMIT ?").all(Number(limit) || 30);
+    const today = db.prepare("SELECT COUNT(*) AS n " + live + " AND e.created_at >= ?").get(Date.now() - 86400000).n;
+    const total = db.prepare("SELECT COUNT(*) AS n " + live).get().n;
+    return { recent, today, total };
+  });
+}
+
+// ---- Settings ----
+
+const SETTINGS = { theme: ["system", "light", "dark"] };
+
+function getSetting(home, key) {
+  if (!SETTINGS[key]) throw new Error("Unknown setting " + key + ".");
+  const r = withDb(home, (db) => db.prepare("SELECT value FROM settings WHERE key = ?").get(key));
+  return r && SETTINGS[key].includes(r.value) ? r.value : SETTINGS[key][0];
+}
+
+function setSetting(home, key, value) {
+  if (!SETTINGS[key]) throw new Error("Unknown setting " + key + ".");
+  if (!SETTINGS[key].includes(value)) throw new Error(key + " must be one of " + SETTINGS[key].join(", ") + ".");
+  withDb(home, (db) => db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value));
+  return value;
 }
 
 function getEntry(home, id) {
@@ -459,7 +463,7 @@ const blobFile = (home, sha) => files.blobPath(dataHome(home), sha);
 const putBlob = (home, buf) => files.putBlob(dataHome(home), buf);
 
 module.exports = {
-  KINDS, VIDEO_SIZES, setBefore, entryFile, blobFile, putBlob,
+  KINDS, VIDEO_SIZES, entryFile, blobFile, putBlob,
   dataHome, stamp, openBattle, listBattles, getBattle, closeBattle, reopenBattle, editBattle, removeBattle, setWinner,
-  entries, getEntry, removeEntry, prepare, submit, results, MAX_CODE, DRAFT_MINUTES,
+  entries, activity, getSetting, setSetting, getEntry, removeEntry, prepare, submit, results, MAX_CODE, DRAFT_MINUTES,
 };

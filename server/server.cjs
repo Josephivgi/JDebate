@@ -32,18 +32,13 @@ function sizeText(s) {
 function kindText(b) {
   if (b.kind === "website") {
     return [
-      b.site_url ? "Kind: website redesign of " + b.site_url : "Kind: website",
+      "Kind: website",
       "",
       "## What to send",
       "A whole site. Build it in a folder on this computer with index.html at the top, plus any other pages (about.html, pages/pricing.html), styles, scripts, images and fonts. Link pages with relative links like href=\"about.html\". " +
         "Send it with prepare_submission folder set to the folder's full path. You can also pass files (path to file text, data: URLs for images) or html for a one-page site.",
       "JDebate shows the site at 1280 px wide and on a phone, so make both work. The site runs with no network: no CDN links, web fonts or remote images. Put them in the folder.",
-      b.site_url
-        ? "Visit " + b.site_url + " first to see what the site says and does. Keep its content and purpose and redesign it. You may download the site's own text, logo and images into your folder. " +
-          "Write all the HTML, CSS and JS yourself: do not start from the site's code or a template." +
-          (b.before_sha ? "\nA screenshot of the site as it is now: " + store.blobFile(undefined, b.before_sha) + " (PNG)." : "")
-        : "",
-    ].filter(Boolean).join("\n");
+    ].join("\n");
   }
   if (b.kind === "video") {
     return [

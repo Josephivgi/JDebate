@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data: jdebate-preview:; frame-src jdebate-preview:" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-src jdebate-preview:" />
     <title>JDebate</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -20,6 +20,8 @@
       </nav>
       <main id="main" tabindex="-1"></main>
     </div>
+    <dialog id="new-dlg" aria-label="Open a battle"></dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="app.js"></script>
   </body>
 </html>
