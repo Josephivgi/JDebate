@@ -79,6 +79,8 @@ const I = {
   reload: "M16.5 10A6.5 6.5 0 1 1 14.6 5.4M16.5 2.5v4h-4",
   cols: "M2.5 3.5h15v13h-15zM10 3.5v13",
   rows: "M2.5 3.5h15v13h-15zM2.5 10h15",
+  full: "M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5",
+  unfull: "M7.5 3v4.5H3M17 7.5h-4.5V3M12.5 17v-4.5H17M3 12.5h4.5V17",
   lock: "M4.5 9h11v8h-11zM7 9V6.5a3 3 0 0 1 6 0V9",
   sun: "M10 6.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6L16 16M4 16l1.4-1.4M14.6 5.4L16 4",
   moon: "M16.5 12A7 7 0 0 1 8 3.5a7 7 0 1 0 8.5 8.5z",
@@ -559,11 +561,15 @@ function cardBody(e) {
 // view (from viewOf) renders the entry at a fixed size and scales it into
 // the box: "width" fills the width and shows the top, "contain" fits all of
 // it, "phone" is a fixed-width column.
+//
+// box.fullscreen() puts the running frame on the whole screen at its real
+// size, no scaling, so sites that break when scaled down show as built.
 function frame(id, label, view) {
   const src = "jdebate-preview://" + id + "/";
-  const el = h("iframe", { class: "frame", src, sandbox: "allow-scripts", title: label, referrerpolicy: "no-referrer" });
+  const el = h("iframe", { class: "frame", src, sandbox: "allow-scripts", allow: "fullscreen", title: label, referrerpolicy: "no-referrer" });
   const note = h("div", { class: "frame-note", role: "status", hidden: true });
-  const box = h("div", { class: "frame-box" + (view ? " " + view.mode : "") }, el, note);
+  const exit = h("button", { class: "btn small fs-exit", title: "Leave full screen (Esc)", onclick: () => document.exitFullscreen().catch(() => {}) }, icon(I.unfull, 14), "Exit full screen");
+  const box = h("div", { class: "frame-box" + (view ? " " + view.mode : "") }, el, note, exit);
   if (view && view.mode !== "phone") {
     el.style.width = view.w + "px";
     const fit = () => {
@@ -599,6 +605,7 @@ function frame(id, label, view) {
   });
   watch();
   box.reload = () => { tries = 0; load(); };
+  box.fullscreen = () => box.requestFullscreen().then(() => el.focus(), (err) => { flash = { text: "Could not open full screen: " + err.message }; render(); });
   return box;
 }
 
@@ -786,6 +793,7 @@ function entryPage() {
         devices.length ? seg(devices, device, (k) => { device = k; render(); }, "Preview width") : null,
         h("div", { class: "right" },
           h("button", { class: "btn icon quiet", "aria-label": "Reload preview", title: "Reload preview", onclick: () => preview.reload() }, icon(I.reload, 15)),
+          h("button", { class: "btn icon quiet", "aria-label": "Full screen", title: "Full screen (F)", "data-fullscreen": "", onclick: () => preview.fullscreen() }, icon(I.full, 15)),
           h("button", { class: "btn icon quiet", "aria-label": stacked ? "Side by side" : "Stack panes", title: stacked ? "Side by side" : "Stack panes", onclick: () => { stacked = !stacked; render(); } }, icon(stacked ? I.cols : I.rows, 15)))),
       h("div", { class: "stage" + (b && b.kind === "video" ? " dark" : "") }, preview));
     const right = h("section", { class: "pane" },
@@ -993,11 +1001,18 @@ function render() {
   }
 }
 
-// n opens a battle. On an entry, Escape goes back and the arrow keys move
-// between entries.
+// n opens a battle. On an entry, f shows the preview full screen, Escape
+// leaves full screen or goes back, and the arrow keys move between entries.
 document.addEventListener("keydown", (e) => {
   if (e.target.closest("input, textarea, select, dialog") || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === "n") {
+  if (document.fullscreenElement) {
+    if (e.key === "Escape") document.exitFullscreen().catch(() => {});
+    return;
+  }
+  if (page.startsWith("entry:") && e.key === "f") {
+    const btn = document.querySelector("[data-fullscreen]");
+    if (btn) { e.preventDefault(); btn.click(); }
+  } else if (e.key === "n") {
     e.preventDefault();
     showNew();
   } else if (page.startsWith("entry:") && e.key === "Escape" && entryView) {
