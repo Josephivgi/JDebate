@@ -1,0 +1,10 @@
+{
+  "id": "jdebate",
+  "name": "JDebate",
+  "description": "Open a battle, let coding agents each build an entry, compare them side by side and pick the winner.",
+  "icon": "app/assets/icon.png",
+  "page": "app/renderer/index.html",
+  "preload": "app/preload.cjs",
+  "main": "app/workspace.cjs",
+  "schemes": [{ "scheme": "jdebate-preview", "privileges": { "standard": true, "secure": true } }]
+}

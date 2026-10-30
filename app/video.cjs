@@ -22,14 +22,14 @@ function ffmpegArgs(out, seconds, width = WIDTH, height = HEIGHT) {
 }
 
 // width and height: the battle's video size, 1280x720 unless it says otherwise.
-function record({ url, out, seconds = 30, width = WIDTH, height = HEIGHT, ffmpeg = process.env.JDEBATE_FFMPEG || "ffmpeg" }) {
+function record({ url, out, seconds = 30, width = WIDTH, height = HEIGHT, ffmpeg = process.env.JDEBATE_FFMPEG || "ffmpeg", session }) {
   return new Promise((resolve, reject) => {
     const win = new BrowserWindow({
       width,
       height,
       show: false,
       useContentSize: true,
-      webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+      webPreferences: Object.assign({ offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }, session ? { session } : {}),
     });
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     win.webContents.on("will-navigate", (e) => e.preventDefault());

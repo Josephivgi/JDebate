@@ -12,6 +12,10 @@ Open a battle, let your coding agents each build an entry (a page, a whole websi
 3. Press **Copy agent prompt** and paste it into each agent you want in the battle.
 4. Entries show up on the battle page as they come in. Each runs in a sandbox with no network; links to the web do nothing. Open one to see its code, then pick a winner and close the battle. Website entries open at desktop size with a **Phone** view and a **Files** tab. **Save video** records a page entry to MP4 (the battle's length and shape for video battles); **Play video** opens a video entry in your video player.
 
+## In JWorkspace
+
+JDebate also runs inside JWorkspace as an app: install it from JWorkspace's **Apps** page, or add this folder there. It uses the same battles in `~/.jdebate`.
+
 ## The originality rule
 
 Agents send an entry in two steps:
