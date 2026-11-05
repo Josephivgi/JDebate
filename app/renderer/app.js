@@ -549,11 +549,14 @@ function reviewState(e) {
   return h("span", { class: "review " + e.review }, icon(e.review === "approved" ? I.check : I.cross, 13), REVIEW_LABEL[e.review] + (e.review_note ? ": " + e.review_note : ""));
 }
 
-function setReview(e, status, note) {
+// Approve always approves and Deny always denies (Clear removes the review),
+// so a click never undoes what the button says. A note typed in the Old and
+// new tab goes with whichever button sends the review.
+function setReview(e, status) {
   const prev = [e.review, e.review_note];
-  const next = e.review === status && note === undefined ? "" : status;
-  return act(() => api.review(e.id, next, note === undefined ? e.review_note : note),
-    next ? "Entry " + e.num + " " + next + "." + (next === "denied" ? " The agent sees your note in battle_read." : "") : "Review cleared.",
+  const note = reviewNote !== null && reviewNote.eid === e.id ? reviewNote.text : e.review_note;
+  return act(() => api.review(e.id, status, note),
+    status ? "Entry " + e.num + " " + status + "." + (status === "denied" ? " The agent sees your note in battle_read." : "") : "Review cleared.",
     () => api.review(e.id, prev[0], prev[1]));
 }
 
@@ -803,20 +806,25 @@ function compareView(e, b) {
     h("h3", { text: label }),
     list.length ? list.map((f) => h("figure", {}, h("img", { src: previewUrl(host, f.path), alt: f.path, loading: "lazy" }), h("figcaption", { class: "hint", text: f.path }))) : h("p", { class: "hint", text: empty }));
   return h("div", { class: "compare" },
-    h("div", { class: "review-box" },
-      h("div", { class: "row-actions" }, h("span", { class: "label grow", text: "Your review" }), reviewState(e)),
-      h("textarea", { "aria-label": "Review note", rows: "2", placeholder: "Note for the agent: what to keep, what to change", oninput: (ev) => { reviewNote = ev.target.value; } }, reviewNote === null ? e.review_note || "" : reviewNote),
-      h("div", { class: "row-actions" },
-        h("button", { class: "btn primary", disabled: busy, onclick: () => setReview(e, "approved", reviewNote === null ? e.review_note : reviewNote) }, icon(I.check, 14), "Approve"),
-        h("button", { class: "btn danger", disabled: busy, onclick: () => setReview(e, "denied", reviewNote === null ? e.review_note : reviewNote) }, icon(I.cross, 14), "Deny"),
-        e.review ? h("button", { class: "btn quiet", disabled: busy, onclick: () => act(() => api.review(e.id, "", ""), "Review cleared.") }, "Clear") : null)),
+    h("div", { class: "review-slot" }),
     h("div", { class: "cmp-cols" },
       col("Current version (old)", b ? "old-" + b.id : "", old, "No screenshots of the current version were added to this battle."),
       col("This entry (new)", e.id, fresh, "This entry has no renders. Use the 3D view.")),
   );
 }
 
-let reviewNote = null;
+// Redrawn on its own (entryPage), so a review never reloads the 3D view.
+function reviewBox(e) {
+  return h("div", { class: "review-box" },
+      h("div", { class: "row-actions" }, h("span", { class: "label grow", text: "Your review" }), reviewState(e)),
+      h("textarea", { "aria-label": "Review note", rows: "2", placeholder: "Note for the agent: what to keep, what to change", oninput: (ev) => { reviewNote = { eid: e.id, text: ev.target.value }; } }, reviewNote !== null && reviewNote.eid === e.id ? reviewNote.text : e.review_note || ""),
+      h("div", { class: "row-actions" },
+        h("button", { class: "btn primary", disabled: busy, onclick: () => setReview(e, "approved") }, icon(I.check, 14), "Approve"),
+        h("button", { class: "btn danger", disabled: busy, onclick: () => setReview(e, "denied") }, icon(I.cross, 14), "Deny"),
+        e.review ? h("button", { class: "btn quiet", disabled: busy, onclick: () => { reviewNote = null; act(() => api.review(e.id, "", ""), "Review cleared."); } }, "Clear") : null));
+}
+
+let reviewNote = null; // {eid, text} while a review note is being typed
 
 function notesView(e, b) {
   return h("div", { class: "notes" },
@@ -888,7 +896,7 @@ function entryPage() {
   const devices = b && (b.kind === "video" || b.kind === "model") ? [] : b && b.kind === "website" ? [["fit", "Desktop"], ["phone", "Phone"]] : [["fit", "Fit"], ["tablet", "Tablet"], ["phone", "Phone"]];
   if (!devices.some(([k]) => k === device)) device = "fit";
   // Built once per entry and view; the head is redrawn around the running frame.
-  const shape = [eid, tab, device, stacked, fileOpen, fileText && fileText.path, tab === "compare" ? e.review + e.review_note + busy : ""].join(":");
+  const shape = [eid, tab, device, stacked, fileOpen, fileText && fileText.path].join(":");
   if (!mounted || mounted.eid !== eid || mounted.shape !== shape || !$main.contains(mounted.root)) {
     const parts = { head: h("div"), flash: h("div", { class: "stack pad" }) };
     const preview = frame(e.id, e.title, viewOf(b, { device, phone: device === "phone" }));
@@ -920,6 +928,21 @@ function entryPage() {
   const idx = list.findIndex((x) => x.id === e.id);
   const prev = idx > 0 ? list[idx - 1] : null;
   const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
+  mounted.parts.flash.replaceChildren(...[flashView()].filter(Boolean));
+  // The review box and the head are only redrawn when what they show changes.
+  // Redrawing them on every poll swapped the buttons out from under the mouse,
+  // so a click that was pressed while an agent sent something was lost.
+  const slot = mounted.root.querySelector(".review-slot");
+  if (slot) {
+    const rsig = JSON.stringify([e.id, e.review, e.review_note, busy]);
+    if (slot.dataset.sig !== rsig) {
+      slot.replaceChildren(reviewBox(e));
+      slot.dataset.sig = rsig;
+    }
+  }
+  const hsig = JSON.stringify([e.id, e.title, e.agent, e.num, e.review, e.review_note, b && b.winner_id, b && b.num, b && b.title, busy, savingVideo, idx, list.length, prev && prev.id, next && next.id]);
+  if (mounted.headSig === hsig) return;
+  mounted.headSig = hsig;
   const record = e.format === "model"
     ? reviewButtons(e, false)
     : e.format === "video"
@@ -938,7 +961,6 @@ function entryPage() {
       record,
       b && b.kind !== "model" ? winButton(b, e, false) : null),
   ));
-  mounted.parts.flash.replaceChildren(...[flashView()].filter(Boolean));
 }
 
 // ---- Agents page ----
@@ -1087,7 +1109,27 @@ async function refresh(force) {
   }
 }
 
+// While a mouse button is held down, redraws wait until it is let go, so a
+// button is never replaced between press and release (which drops the click).
+// The waiting redraw runs after the click has fired.
+let pressing = false;
+let renderLater = false;
+const released = () => {
+  if (!pressing) return;
+  pressing = false;
+  if (renderLater) setTimeout(() => { if (!pressing && renderLater) render(); }, 0);
+};
+window.addEventListener("pointerdown", (ev) => { if (ev.button === 0) pressing = true; }, true);
+window.addEventListener("pointerup", released, true);
+window.addEventListener("pointercancel", released, true);
+window.addEventListener("blur", released);
+
 function render() {
+  if (pressing) {
+    renderLater = true;
+    return;
+  }
+  renderLater = false;
   renderSide();
   if (page === "agents") {
     mounted = null;
