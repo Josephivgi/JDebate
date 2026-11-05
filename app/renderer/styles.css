@@ -193,7 +193,8 @@ input.short { width: 110px; }
 .brow:hover { background: var(--well); }
 .brow:hover .go { color: var(--accent); transform: translateX(2px); }
 .bnum { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; background: var(--canvas); }
-.bmain { display: flex; flex-direction: column; min-width: 0; }
+.bmain { display: flex; flex-direction: column; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.idbtn { gap: 6px; }
 .btitle { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bdesc { margin-top: 2px; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bmeta { display: flex; gap: 14px; align-items: center; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }

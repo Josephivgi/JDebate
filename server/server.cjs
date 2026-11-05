@@ -78,6 +78,15 @@ function kindText(b) {
 
 const str = (description) => ({ type: "string", description });
 const num = (description) => ({ type: "integer", description });
+// A battle is named by its ID (JD-18, copied from the app) or its number (18).
+const battleArg = (description) => ({ type: ["string", "integer"], description: description + ": the battle ID the user gave you (like JD-18) or its number (18)." });
+
+function battleNum(v) {
+  if (typeof v === "number") return v;
+  const m = /^\s*(?:jdebate|jd)?[\s#:-]*(?:battle[\s#:-]*)?(\d+)\s*$/i.exec(String(v));
+  if (!m) throw new Error("\"" + v + "\" is not a battle ID. Battle IDs look like JD-18. Call battles to see the open ones.");
+  return Number(m[1]);
+}
 
 const TOOLS = [
   {
@@ -89,7 +98,7 @@ const TOOLS = [
   {
     name: "battle_read",
     description: "Read one battle: the task to build, the rules, and who has sent an entry so far. Other entries' code stays hidden while the battle is open.",
-    inputSchema: { type: "object", properties: { battle: num("Battle number, e.g. 3") }, required: ["battle"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { battle: battleArg("Battle to read") }, required: ["battle"], additionalProperties: false },
     annotations: { readOnlyHint: true },
   },
   {
@@ -101,7 +110,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        battle: num("Battle number"),
+        battle: battleArg("Battle to enter"),
         title: str("Short name for your entry"),
         html: str("One page: a full document or just the body content. Send html, folder, files or video, only one."),
         css: str("With html: styles. Optional if they are inside html."),
@@ -189,7 +198,7 @@ const TOOLS = [
   {
     name: "battle_results",
     description: "Entries of a battle and the winner. The code of each entry is shown once the battle is closed.",
-    inputSchema: { type: "object", properties: { battle: num("Battle number") }, required: ["battle"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { battle: battleArg("Battle") }, required: ["battle"], additionalProperties: false },
     annotations: { readOnlyHint: true },
   },
 ];
@@ -203,7 +212,7 @@ const clip = (t) => (t.length > 60000 ? t.slice(0, 60000) + "\n… (cut at 60000
 
 function battleLine(b) {
   const kind = b.kind && b.kind !== "page" ? KIND_NAME[b.kind].toLowerCase() + ", " : "";
-  return "- Battle " + b.num + ": " + b.title + " (" + kind + b.status + ", " + b.entries + (b.entries === 1 ? " entry" : " entries") + ")";
+  return "- Battle " + b.num + " (ID JD-" + b.num + "): " + b.title + " (" + kind + b.status + ", " + b.entries + (b.entries === 1 ? " entry" : " entries") + ")";
 }
 
 function matchLine(m) {
@@ -238,7 +247,8 @@ async function callBlender(name, a) {
   return text;
 }
 
-function readBattle(n) {
+function readBattle(v) {
+  const n = battleNum(v);
   const r = store.results(undefined, n);
   if (!r) throw new Error("There is no battle " + n + ". Call battles to see the open ones.");
   return r;
@@ -256,7 +266,7 @@ function call(name, a) {
   if (name === "battle_read") {
     const { battle: b, entries } = readBattle(a.battle);
     return [
-      "# Battle " + b.num + ": " + b.title,
+      "# Battle " + b.num + " (ID JD-" + b.num + "): " + b.title,
       "Status: " + b.status + (b.status === "open" ? ", taking entries" : ", no more entries"),
       "",
       "## Task",
@@ -273,7 +283,7 @@ function call(name, a) {
     ].join("\n");
   }
   if (name === "prepare_submission") {
-    const r = store.prepare(undefined, Object.assign({}, a, { client }));
+    const r = store.prepare(undefined, Object.assign({}, a, { battle: battleNum(a.battle), client }));
     if (r.blocked) {
       throw new Error(
         "Not accepted. This entry is too close to work already in JDebate:\n" + r.matches.map(matchLine).join("\n") + "\n\n" + RULE,
@@ -335,7 +345,8 @@ const methods = {
       serverInfo: { name: "jdebate", title: "JDebate", version: VERSION },
       instructions:
         "JDebate runs battles: the user opens one in the JDebate app with a task, and agents each build an entry: a page (HTML, CSS, JS), a website (a folder of pages and images), a video, or a 3D model made in Blender with the blender_* tools. " +
-        "Read the task with battle_read, build it yourself, then send it with prepare_submission and submit.\n\n" + RULE +
+        "Read the task with battle_read, build it yourself, then send it with prepare_submission and submit. " +
+        "If the user gives you a battle ID like JD-18, that is a JDebate battle: call battle_read with it, then build and send your entry.\n\n" + RULE +
         (open.length ? "\n\nOpen battles:\n" + open.map(battleLine).join("\n") : "\n\nNo battle is open right now."),
     };
   },

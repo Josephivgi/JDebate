@@ -382,15 +382,16 @@ function battlesPage() {
   const q = query.trim().toLowerCase();
   const list = battles.filter((b) => filter === "all" || b.status === filter).filter((b) => !q || (b.title + " " + b.task).toLowerCase().includes(q));
   const rows = list.map((b) =>
-    h("button", { class: "brow", onclick: () => go("battle:" + b.id) },
+    h("div", { class: "brow", onclick: () => go("battle:" + b.id) },
       h("span", { class: "bnum", text: String(b.num) }),
-      h("span", { class: "bmain" },
+      h("button", { class: "bmain", type: "button", "aria-label": "Open battle " + b.num + ": " + b.title },
         h("span", { class: "btitle", text: b.title }),
         h("span", { class: "bdesc", text: b.winner ? "Winner: entry " + b.winner.num + ", " + b.winner.title + ", by " + b.winner.agent : b.task.replace(/\s+/g, " ").slice(0, 200) })),
       h("span", { class: "bmeta" },
         b.kind && b.kind !== "page" ? h("span", { text: kindOf(b.kind).label }) : null,
         b.agents && b.agents.length ? h("span", { class: "thumbs", title: b.agents.join(", ") }, b.agents.slice(0, 4).map((a) => h("i", { text: initials(a) }))) : null,
         h("span", { class: "tnum", text: plural(b.entries, "entry", "entries") }),
+        copyIdButton(b),
         h("span", { class: "st" + (b.status === "open" ? " open" : ""), text: b.status === "open" ? "Open" : "Closed" }),
         h("span", { class: "go" }, icon(I.right, 14))),
     ));
@@ -441,12 +442,18 @@ let editing = null; // {title, task}
 let confirm = null; // {kind: "battle"|"entry", id}
 let showPrompt = false;
 
+// Short battle ID to give an agent. The jdebate MCP tools take it as is.
+const battleId = (b) => "JD-" + b.num;
+function copyIdButton(b) {
+  return h("button", { class: "btn small quiet idbtn", type: "button", title: "Copy battle ID " + battleId(b) + " to give to an agent", "aria-label": "Copy battle ID " + battleId(b), onclick: (e) => { e.stopPropagation(); act(() => api.copy(battleId(b)), battleId(b) + " copied. Give it to any agent with JDebate set up."); } }, icon(I.copy, 14), h("span", { class: "mono", text: battleId(b) }));
+}
+
 function agentPrompt(b) {
   const what = b.kind === "website"
     ? " It is a website: build it in a folder and send the folder."
     : b.kind === "video" ? " It is a " + b.video_seconds + " second video: send an animation page or a video file you made."
     : b.kind === "model" ? " It is a 3D model battle: look at the current version first, build your model in Blender with the jdebate blender_* tools, and send the folder with the .glb, renders, Roblox files and README.md." : "";
-  return "Join JDebate battle " + b.num + " (\"" + b.title + "\")." + what + " Use the jdebate MCP tools: read the task with battle_read " + b.num + ", build your entry yourself from scratch, then send it with prepare_submission and submit. Do not copy, fork or clone anyone else's work.";
+  return "Join JDebate battle " + battleId(b) + " (\"" + b.title + "\")." + what + " Use the jdebate MCP tools: read the task with battle_read " + battleId(b) + ", build your entry yourself from scratch, then send it with prepare_submission and submit. Do not copy, fork or clone anyone else's work.";
 }
 
 // How entries are shown. page: a 1200 px wide page scaled down in cards, as
@@ -468,6 +475,7 @@ function viewOf(b, opts) {
 function battleHead(b) {
   const open = b.status === "open";
   return head(b.title, (open ? "Open" : "Closed") + " · opened " + ago(b.created_at) + " · " + plural(b.entries, "entry", "entries") + " · " + kindLine(b), [
+    copyIdButton(b),
     open
       ? h("button", { class: "btn quiet", disabled: busy, onclick: () => act(() => api.closeBattle(b.id), "Battle closed. Agents can now read every entry's code with battle_results.", () => api.reopenBattle(b.id)) }, icon(I.lock, 14), "Close battle")
       : null,
@@ -476,7 +484,7 @@ function battleHead(b) {
     open
       ? h("button", { class: "btn primary", disabled: busy, onclick: () => act(() => api.copy(agentPrompt(b)), "Agent prompt copied. Paste it into each agent you want in this battle.") }, icon(I.copy, 14), "Copy agent prompt")
       : h("button", { class: "btn primary", disabled: busy, onclick: () => act(() => api.reopenBattle(b.id), "Battle open again.") }, "Reopen battle"),
-  ], { label: "Battles", here: "Battle " + b.num, go: () => go("battles") });
+  ], { label: "Battles", here: "Battle " + b.num + " · " + battleId(b), go: () => go("battles") });
 }
 
 function taskPanel(b) {

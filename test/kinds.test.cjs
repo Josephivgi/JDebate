@@ -154,8 +154,8 @@ test("agents read what to send for each kind, and get a site's files after it cl
     const web = store.openBattle(undefined, { title: "Site", task: "Make a bakery website", kind: "website" });
     store.openBattle(undefined, { title: "Demo", task: "Make a demo", kind: "video", videoSeconds: 20, videoSize: "1080x1080" });
     const list = (await call("battles", {})).content[0].text;
-    assert.match(list, /Battle 1: Site \(website, open, 0 entries\)/);
-    assert.match(list, /Battle 2: Demo \(video, open/);
+    assert.match(list, /Battle 1 \(ID JD-1\): Site \(website, open, 0 entries\)/);
+    assert.match(list, /Battle 2 \(ID JD-2\): Demo \(video, open/);
     const read1 = (await call("battle_read", { battle: 1 })).content[0].text;
     assert.match(read1, /Kind: website\n\n## What to send/);
     assert.doesNotMatch(read1, /screenshot|redesign/i);

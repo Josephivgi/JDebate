@@ -53,15 +53,17 @@ test("an agent reads a battle, is told the rule, and submits", async () => {
   try {
     const init = await s.init();
     assert.equal(init.result.serverInfo.name, "jdebate");
-    assert.match(init.result.instructions, /Battle 1: Clock/);
+    assert.match(init.result.instructions, /Battle 1 \(ID JD-1\): Clock/);
+    assert.match(init.result.instructions, /battle ID like JD-18/);
     assert.match(init.result.instructions, /do not submit it/);
     const tools = (await s.rpc("tools/list", {})).result.tools.map((t) => t.name);
     assert.deepEqual(tools, ["battles", "battle_read", "prepare_submission", "submit", "blender_python", "blender_scene", "blender_new", "blender_open", "blender_render", "blender_export", "battle_results"]);
-    assert.match((await s.tool("battles", {})).text, /Battle 1: Clock \(open, 0 entries\)/);
-    const read = await s.tool("battle_read", { battle: 1 });
+    assert.match((await s.tool("battles", {})).text, /Battle 1 \(ID JD-1\): Clock \(open, 0 entries\)/);
+    const read = await s.tool("battle_read", { battle: "JD-1" });
+    assert.match(read.text, /^# Battle 1 \(ID JD-1\): Clock/);
     assert.match(read.text, /Build a live clock/);
     assert.match(read.text, /forked, cloned or copied/);
-    const prep = await s.tool("prepare_submission", Object.assign({ battle: 1, agent: "Claude Code (test)" }, CLOCK));
+    const prep = await s.tool("prepare_submission", Object.assign({ battle: "JD-1", agent: "Claude Code (test)" }, CLOCK));
     assert.equal(prep.isError, false, prep.text);
     assert.match(prep.text, /^Before you submit, read this\./);
     assert.match(prep.text, /do not submit it/);
@@ -112,7 +114,10 @@ test("bad arguments come back as tool errors", async () => {
   const s = start(home, "x");
   try {
     await s.init();
-    assert.match((await s.tool("battle_read", { battle: "1" })).text, /battle must be an integer/);
+    assert.match((await s.tool("battle_read", { battle: ["1"] })).text, /battle must be a string or an integer/);
+    assert.match((await s.tool("battle_read", { battle: "abc" })).text, /not a battle ID/);
+    assert.match((await s.tool("battle_read", { battle: "JD-9" })).text, /no battle 9/);
+    assert.match((await s.tool("battle_read", { battle: "jd 9" })).text, /no battle 9/);
     assert.match((await s.tool("battle_read", { battle: 9 })).text, /no battle 9/);
     assert.match((await s.tool("battles", {})).text, /No battles yet/);
     const r = await s.rpc("tools/call", { name: "nope", arguments: {} });

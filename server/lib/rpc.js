@@ -39,8 +39,10 @@ function checkArgs(schema, args) {
     if (value === undefined) continue;
     const t = typeOf(value);
     const want = p.type;
-    const fits = !want || want === t || (want === "number" && t === "integer") || (want === "integer" && t === "integer");
-    if (!fits) return key + " must be " + (want === "array" ? "an array" : want === "object" || want === "integer" ? "an " + want : "a " + want) + ".";
+    const one = (w) => !w || w === t || (w === "number" && t === "integer");
+    const fits = Array.isArray(want) ? want.some(one) : one(want);
+    const name = (w) => (w === "array" ? "an array" : w === "object" || w === "integer" ? "an " + w : "a " + w);
+    if (!fits) return key + " must be " + (Array.isArray(want) ? want.map(name).join(" or ") : name(want)) + ".";
     if (p.enum && !p.enum.includes(value)) return key + " must be one of " + p.enum.join(", ") + ".";
     if (want === "array" && p.items && p.items.type === "string" && !value.every((x) => typeof x === "string")) return key + " must be a list of strings.";
   }
