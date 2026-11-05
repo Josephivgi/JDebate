@@ -230,7 +230,7 @@ async function callBlender(name, a) {
   else if (name === "blender_scene") r = await blender.run(blender.sceneCode());
   else if (name === "blender_new") r = await blender.run(blender.newSceneCode());
   else if (name === "blender_open") r = await blender.run(blender.openCode(a.file));
-  else if (name === "blender_render") r = await blender.run(blender.renderCode(a.folder, a.views && a.views.length ? a.views : ["front", "side", "back", "three_quarter"], Math.min(2048, Math.max(256, a.size || 1024)), a.engine || null));
+  else if (name === "blender_render") r = await blender.renderSafe(a.folder, a.views && a.views.length ? a.views : ["front", "side", "back", "three_quarter"], Math.min(2048, Math.max(256, a.size || 1024)), a.engine || null);
   else if (name === "blender_export") r = await blender.run(blender.exportCode(a.folder, a.name || "model", a.formats && a.formats.length ? a.formats : ["glb", "fbx", "obj", "blend"]));
   else throw new Error("Unknown tool " + name);
   const text = blenderText(r);

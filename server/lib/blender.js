@@ -135,6 +135,28 @@ async function run(code, timeoutMs) {
   return request(p.port, String(code), timeoutMs || RUN_TIMEOUT);
 }
 
+const alive = () => Boolean(proc && proc.child.exitCode === null);
+
+// Renders with a safety net: the scene is saved first, and if Blender dies
+// while rendering (GPU trouble with many Blenders at once), a new Blender
+// opens the saved scene and renders it with Workbench instead.
+async function renderSafe(folder, views, size, engine) {
+  const os = require("node:os");
+  const save = path.join(os.tmpdir(), "jdebate-render-" + process.pid + ".blend");
+  await run("import bpy\nbpy.ops.wm.save_as_mainfile(filepath=" + py(save) + ", copy=True)\nresult = {'saved': True}", 120000);
+  try {
+    const r = await run(renderCode(folder, views, size, engine));
+    if (r.status === "ok" || alive()) return r;
+    throw new Error("Blender stopped while rendering.");
+  } catch (e) {
+    if (alive()) throw e;
+    await run(openCode(save), 180000);
+    const r = await run(renderCode(folder, views, size, "BLENDER_WORKBENCH"));
+    if (r.status === "ok" && r.result) r.result.note = "Blender stopped during the first render, so the scene was reopened and rendered with Workbench. Your scene is intact.";
+    return r;
+  }
+}
+
 const py = (v) => JSON.stringify(v); // JSON is valid Python for strings, numbers, lists
 
 // Facts about the scene: every object with its size, triangles and material.
@@ -243,6 +265,18 @@ for eng in ${py(engine ? [engine] : ["BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLE
 if used == 'BLENDER_WORKBENCH':
     sc.display.shading.light = 'STUDIO'
     sc.display.shading.color_type = 'MATERIAL'
+# Quick previews: many agents render at once, so keep samples low.
+old_samples = None
+try:
+    if used and used.startswith('BLENDER_EEVEE'):
+        old_samples = ('eevee', sc.eevee.taa_render_samples)
+        sc.eevee.taa_render_samples = ${py(Math.max(1, Math.min(256, 16)))}
+    elif used == 'CYCLES':
+        old_samples = ('cycles', sc.cycles.samples)
+        sc.cycles.samples = 24
+        sc.cycles.use_denoising = True
+except Exception:
+    old_samples = None
 dirs = {'front': (0, -1, 0.18), 'back': (0, 1, 0.18), 'left': (-1, 0, 0.18), 'right': (1, 0, 0.18), 'side': (1, 0, 0.18),
         'three_quarter': (0.75, -1, 0.45), 'top': (0.001, -0.001, 1), 'low': (0.6, -1, -0.05)}
 fov = 2 * math.atan(36 / (2 * cam_data.lens))
@@ -261,6 +295,13 @@ finally:
     sc.camera, eng0, sc.render.resolution_x, sc.render.resolution_y, sc.render.filepath, sc.render.film_transparent = old
     try:
         sc.render.engine = eng0
+    except Exception:
+        pass
+    try:
+        if old_samples and old_samples[0] == 'eevee':
+            sc.eevee.taa_render_samples = old_samples[1]
+        elif old_samples and old_samples[0] == 'cycles':
+            sc.cycles.samples = old_samples[1]
     except Exception:
         pass
     for o in temp:
@@ -312,4 +353,4 @@ result = {'files': files, 'total_tris': info['total_tris'], 'meshes_over_roblox_
 
 const status = () => ({ exe: findBlender(), running: Boolean(proc && proc.child.exitCode === null), port: proc ? proc.port : null });
 
-module.exports = { run, start, stop, status, findBlender, sceneCode, newSceneCode, openCode, renderCode, exportCode };
+module.exports = { run, renderSafe, start, stop, status, findBlender, sceneCode, newSceneCode, openCode, renderCode, exportCode };

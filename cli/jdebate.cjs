@@ -19,6 +19,18 @@ async function main() {
     process.stdout.write(lines.join("\n") + "\n");
     return;
   }
+  // old <battle number> <folder> [notes file]: sets a 3D model battle's current version.
+  if (cmd === "old") {
+    const store = require("../server/lib/store.js");
+    const [num, folder, notesFile] = rest;
+    const b = store.getBattle(home, Number(num), { byNum: true }) || store.listBattles(home).find((x) => x.num === Number(num));
+    if (!b) throw new Error("No battle " + num + ".");
+    const input = { folder };
+    if (notesFile) input.notes = require("node:fs").readFileSync(notesFile, "utf8");
+    const r = store.setOld(home, b.id, input);
+    process.stdout.write("Battle " + r.num + " current version: " + r.old_files.length + " files. Agents read it at " + store.oldFolder(home, r) + "\n");
+    return;
+  }
   if (cmd === "install") out = await install.install(rest, home);
   else if (cmd === "uninstall") out = install.uninstall(rest, home);
   else if (cmd === "update") out = await install.update(home, { force: true });
