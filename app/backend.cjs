@@ -7,7 +7,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
-const { shell, clipboard, dialog, BrowserWindow } = require("electron");
+const { shell, clipboard, dialog, BrowserWindow, nativeImage } = require("electron");
 const store = require("../server/lib/store.js");
 const { isText } = require("../server/lib/files.js");
 const install = require("../core/install.cjs");
@@ -25,6 +25,8 @@ function createBackend(opts) {
   const HOME = opts.home;
   const SMOKE = Boolean(opts.smoke);
   const handle = opts.handle;
+  // One open database connection for the life of the app (see store.keepOpen).
+  store.keepOpen(true);
 
   handle("stamp", () => store.stamp(HOME));
   handle("battles", () => store.listBattles(HOME));
@@ -148,6 +150,7 @@ function createBackend(opts) {
       return new Response(String(e.message || e), { status: 500, headers: { "content-type": "text/plain" } });
     }
   };
+  if (!SMOKE) warmThumbs(HOME);
   return { preview, updater: appUpdater, startup };
 }
 
@@ -169,15 +172,97 @@ function fileResponse(req, f, headers) {
   });
 }
 
-// three.js for the 3D viewer, from the app's own node_modules.
+// three.js for the 3D viewer, from the app's own node_modules. Read once and
+// kept in memory: every 3D frame asks for the same five files.
 const THREE_DIR = path.join(__dirname, "..", "node_modules", "three");
+const threeCache = new Map();
 function threeResponse(p) {
   const rel = p.slice("__jdebate/three/".length);
   if (!/^(build|examples\/jsm)\/[A-Za-z0-9_\-./]+\.js$/.test(rel) || rel.includes("..")) return notFound();
-  const file = path.join(THREE_DIR, ...rel.split("/"));
-  if (!fs.existsSync(file)) return notFound();
-  return new Response(fs.readFileSync(file), { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "max-age=3600", "access-control-allow-origin": "*" } });
+  let body = threeCache.get(rel);
+  if (!body) {
+    const file = path.join(THREE_DIR, ...rel.split("/"));
+    if (!fs.existsSync(file)) return notFound();
+    body = fs.readFileSync(file);
+    threeCache.set(rel, body);
+  }
+  return new Response(body, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "max-age=86400", "access-control-allow-origin": "*" } });
 }
+
+// ?w=<width> on an image: a smaller JPEG for thumbnails and side-by-side
+// compares, made once and kept in ~/.jdebate/thumbs (blobs never change, so
+// the blob name is the key). Renders are often 1-4 MB PNGs; dozens of them at
+// full size made the Old and new tab slow to open. JPEG, because PNG encoding
+// takes seconds per image; images with transparency keep their original.
+const THUMB_WIDTHS = [240, 480, 960];
+function makeThumb(HOME, f, width) {
+  const dir = path.join(store.dataHome(HOME), "thumbs");
+  const base = path.join(dir, path.basename(f.file) + "-" + width);
+  if (fs.existsSync(base + ".jpg")) return base + ".jpg";
+  if (fs.existsSync(base + ".orig")) return f.file;
+  const mark = (ext, body) => {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(base + ext, body);
+    } catch {}
+  };
+  const img = nativeImage.createFromPath(f.file);
+  if (img.isEmpty() || img.getSize().width <= width * 1.25) {
+    mark(".orig", "");
+    return f.file;
+  }
+  const small = img.resize({ width, quality: "good" });
+  const px = small.toBitmap();
+  for (let i = 3; i < px.length; i += 4) {
+    if (px[i] !== 255) {
+      mark(".orig", "");
+      return f.file;
+    }
+  }
+  mark(".jpg", small.toJPEG(85));
+  return base + ".jpg";
+}
+function thumbWidth(req) {
+  const w = Number(new URL(req.url).searchParams.get("w"));
+  return w ? THUMB_WIDTHS.find((x) => x >= w) || THUMB_WIDTHS[THUMB_WIDTHS.length - 1] : 0;
+}
+function thumbResponse(HOME, req, f, headers) {
+  const width = thumbWidth(req);
+  if (!width || !/^image\/(png|jpeg|webp)/.test(f.type)) return null;
+  const file = makeThumb(HOME, f, width);
+  if (file === f.file) return fileResponse(req, f, Object.assign({ "cache-control": "max-age=86400" }, headers));
+  return new Response(fs.readFileSync(file), { headers: Object.assign({ "content-type": "image/jpeg", "cache-control": "max-age=86400", "access-control-allow-origin": "*" }, headers) });
+}
+
+// Makes the thumbnails of open model battles in the background, one image at
+// a time with a pause between, so opening a battle finds them ready.
+function warmThumbs(HOME) {
+  const jobs = [];
+  try {
+    for (const b of store.listBattles(HOME)) {
+      if (b.status !== "open" || b.kind !== "model") continue;
+      for (const f of b.old_files.filter(isImage)) jobs.push([store.oldFile(HOME, b, f.path), 240]);
+      for (const e of store.entries(HOME, b.id, { noCode: true })) {
+        const imgs = e.files.filter(isImage);
+        if (imgs[0]) jobs.push([store.entryFile(HOME, e, imgs[0].path), 480]);
+        for (const f of imgs) jobs.push([store.entryFile(HOME, e, f.path), 960]);
+      }
+      for (const f of b.old_files.filter(isImage)) jobs.push([store.oldFile(HOME, b, f.path), 960]);
+    }
+  } catch {
+    return;
+  }
+  const next = () => {
+    const j = jobs.shift();
+    if (!j) return;
+    try {
+      if (j[0]) makeThumb(HOME, j[0], j[1]);
+    } catch {}
+    setTimeout(next, 60);
+  };
+  setTimeout(next, 4000);
+}
+const serveFile = (HOME, req, f, headers) => thumbResponse(HOME, req, f, headers) || fileResponse(req, f, headers);
 
 const isModel = (f) => /\.(glb|gltf)$/i.test(f.path);
 const isImage = (f) => /\.(png|jpe?g|webp)$/i.test(f.path);
@@ -193,7 +278,7 @@ function oldResponse(HOME, req, bid, p) {
     return new Response(guard(modelPage(glb ? glb.path : null, b.old_files.filter(isImage).map((f) => f.path))), { headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": modelCsp(o), "cache-control": "no-store" } });
   }
   const f = store.oldFile(HOME, b, p);
-  return f ? fileResponse(req, f, { "content-security-policy": modelCsp(o) }) : notFound();
+  return f ? serveFile(HOME, req, f, { "content-security-policy": modelCsp(o) }) : notFound();
 }
 
 function previewResponse(HOME, req) {
@@ -218,7 +303,7 @@ function previewResponse(HOME, req) {
       return new Response(guard(modelPage(glb ? glb.path : null, entry.files.filter(isImage).map((f) => f.path))), { headers: Object.assign({ "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, csp) });
     }
     const mf = store.entryFile(HOME, entry, p);
-    return mf ? fileResponse(req, mf, csp) : notFound();
+    return mf ? serveFile(HOME, req, mf, csp) : notFound();
   }
   if (entry.format === "video") return p === "index.html" ? page(videoPage(entry.files[0].path)) : (store.entryFile(HOME, entry, p) ? fileResponse(req, store.entryFile(HOME, entry, p)) : notFound());
   if (entry.format !== "site") return p === "index.html" ? page(compose(entry)) : notFound();

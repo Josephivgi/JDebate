@@ -580,7 +580,7 @@ function oldPanel(b) {
       h("span", { class: "note grow", text: imgs.length ? plural(imgs.length, "image", "images") + " of what is in the game now. Agents see these in battle_read." : "No screenshots yet. Add a folder with screenshots of what is in the game now." }),
       h("span", { class: "note", text: r.approved + " approved · " + r.denied + " denied · " + r.waiting + " waiting" }),
       h("button", { class: "btn small", disabled: busy, onclick: () => act(() => api.setOldFolder(b.id), (x) => (x ? "Current version updated." : "")) }, icon(I.folder, 14), imgs.length ? "Change images" : "Add images")),
-    imgs.length ? h("div", { class: "old-strip" }, imgs.map((f) => h("a", { class: "old-img", href: "#", title: f.path, onclick: (ev) => { ev.preventDefault(); bigImage = previewUrl("old-" + b.id, f.path); render(); } }, h("img", { src: previewUrl("old-" + b.id, f.path), alt: f.path, loading: "lazy" })))) : null,
+    imgs.length ? h("div", { class: "old-strip" }, imgs.map((f) => h("a", { class: "old-img", href: "#", title: f.path, onclick: (ev) => { ev.preventDefault(); bigImage = previewUrl("old-" + b.id, f.path); render(); } }, h("img", { src: previewUrl("old-" + b.id, f.path) + "?w=240", alt: f.path, loading: "lazy", decoding: "async" })))) : null,
     oldNotesEdit !== null
       ? h("form", { class: "stack", onsubmit: (ev) => { ev.preventDefault(); act(async () => { await api.setOldNotes(b.id, oldNotesEdit); oldNotesEdit = null; }, "Notes saved."); } },
           h("textarea", { "aria-label": "Current version notes", rows: "4", oninput: (ev) => { oldNotesEdit = ev.target.value; } }, oldNotesEdit),
@@ -696,7 +696,7 @@ function card(e) {
     h("span", { class: "ribbon" }, icon(I.star, 13, true), "Winner"),
     h("div", { class: "thumb" + (b.kind === "video" || b.kind === "model" ? " dark" : "") },
       b.kind === "model"
-        ? (firstImage(e.files) ? h("img", { class: "thumb-img", src: previewUrl(e.id, firstImage(e.files).path), alt: "" }) : h("div", { class: "frame-box" }, icon(I.cube, 32)))
+        ? (firstImage(e.files) ? h("img", { class: "thumb-img", src: previewUrl(e.id, firstImage(e.files).path) + "?w=480", alt: "", loading: "lazy", decoding: "async" }) : h("div", { class: "frame-box" }, icon(I.cube, 32)))
         : frame(e.id, "Entry " + e.num + ": " + e.title, viewOf(b, { card: true })),
       h("button", { class: "over", "aria-label": "Open entry " + e.num, onclick: () => go("entry:" + e.id) }, h("span", {}, icon(I.open, 14), "Open entry"))),
     cardBody(e),
@@ -804,7 +804,7 @@ function compareView(e, b) {
   const fresh = e.files.filter((f) => /\.(png|jpe?g|webp)$/i.test(f.path));
   const col = (label, host, list, empty) => h("div", { class: "cmp-col" },
     h("h3", { text: label }),
-    list.length ? list.map((f) => h("figure", {}, h("img", { src: previewUrl(host, f.path), alt: f.path, loading: "lazy" }), h("figcaption", { class: "hint", text: f.path }))) : h("p", { class: "hint", text: empty }));
+    list.length ? list.map((f) => h("figure", {}, h("img", { src: previewUrl(host, f.path) + "?w=960", alt: f.path, loading: "lazy", decoding: "async" }), h("figcaption", { class: "hint", text: f.path }))) : h("p", { class: "hint", text: empty }));
   return h("div", { class: "compare" },
     h("div", { class: "review-slot" }),
     h("div", { class: "cmp-cols" },

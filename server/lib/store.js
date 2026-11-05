@@ -38,19 +38,55 @@ function dataHome(home) {
 // lock and wait behind an agent's submit; the app's preview frames read here.
 const ready = new Set();
 
+// The app keeps one connection per database open (keepOpen). Opening and
+// closing on every call costs 20-150 ms on Windows (the close checkpoints the
+// WAL), and the preview frames ask for an entry on every file they load. The
+// MCP server and tests open per call, so nothing holds the file between runs.
+let keep = false;
+const open = new Map(); // file -> DatabaseSync
+
+function keepOpen(on = true) {
+  keep = Boolean(on);
+  if (!keep) closeAll();
+}
+
+function closeAll() {
+  for (const db of open.values()) {
+    try {
+      db.close();
+    } catch {}
+  }
+  open.clear();
+}
+
 function withDb(home, fn) {
   const dir = dataHome(home);
   const file = path.join(dir, "jdebate.db");
-  if (ready.has(file) && !fs.existsSync(file)) ready.delete(file);
+  if (ready.has(file) && !fs.existsSync(file)) {
+    ready.delete(file);
+    const old = open.get(file);
+    if (old) {
+      open.delete(file);
+      try {
+        old.close();
+      } catch {}
+    }
+  }
+  if (keep && open.has(file)) return fn(open.get(file));
   if (!ready.has(file)) fs.mkdirSync(dir, { recursive: true });
   const db = new DatabaseSync(file);
+  let kept = false;
   try {
     db.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
     if (!ready.has(file)) setup(db);
     ready.add(file);
+    if (keep) {
+      open.set(file, db);
+      kept = true;
+    }
     return fn(db);
   } finally {
-    db.close();
+    if (!kept) db.close();
   }
 }
 
@@ -91,6 +127,12 @@ function setup(db) {
       }
     }
   }
+  // Battle lists count live entries per battle and the activity feed sorts by
+  // time; without these every list scans the entries' code.
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS entries_live ON entries (battle_id, removed, replaced_by);" +
+      "CREATE INDEX IF NOT EXISTS entries_created ON entries (created_at);",
+  );
 }
 
 function tx(home, fn) {
@@ -550,7 +592,7 @@ const blobFile = (home, sha) => files.blobPath(dataHome(home), sha);
 const putBlob = (home, buf) => files.putBlob(dataHome(home), buf);
 
 module.exports = {
-  KINDS, REVIEWS, VIDEO_SIZES, entryFile, setOld, oldFolder, oldFile, review, blobFile, putBlob,
+  KINDS, REVIEWS, VIDEO_SIZES, keepOpen, closeAll, entryFile, setOld, oldFolder, oldFile, review, blobFile, putBlob,
   dataHome, stamp, openBattle, listBattles, getBattle, closeBattle, reopenBattle, editBattle, removeBattle, setWinner,
   entries, activity, getSetting, setSetting, getEntry, removeEntry, prepare, submit, results, MAX_CODE, DRAFT_MINUTES,
 };

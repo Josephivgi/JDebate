@@ -80,7 +80,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #info{position:fixed;right:8px;bottom:8px;background:rgba(20,22,26,.72);padding:5px 8px;border-radius:7px}
 #msg{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none}
 </style>
-<script type="importmap">{"imports":{"three":"/__jdebate/three/build/three.module.js","three/addons/":"/__jdebate/three/examples/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"/__jdebate/three/build/three.module.min.js","three/addons/":"/__jdebate/three/examples/jsm/"}}</script>
 </head><body>
 <div id="msg">Loading model…</div>
 <div id="bar"><button id="spin" aria-pressed="true">Turn</button><button id="wire" aria-pressed="false">Wireframe</button><button id="reset">Reset view</button></div>
