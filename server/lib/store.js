@@ -22,7 +22,10 @@ const DRAFT_MINUTES = 30;
 // What a battle asks for. page: one page. website: a site with pages and
 // images, sent as a folder. video: a clip of video_seconds at
 // video_size, sent as an animation page or as a finished video file.
-const KINDS = ["page", "website", "video"];
+// model: a 3D model made in Blender (a .glb, PNG renders, Roblox import
+// files), shown next to the battle's current version for approve or deny.
+const KINDS = ["page", "website", "video", "model"];
+const REVIEWS = ["", "approved", "denied"];
 const VIDEO_SIZES = ["1280x720", "1080x1920", "1080x1080"];
 
 function dataHome(home) {
@@ -69,9 +72,11 @@ function setup(db) {
   // Columns added after the first release. Old copies of the server keep
   // working: every new column has a default.
   const add = {
-    battles: ["kind TEXT NOT NULL DEFAULT 'page'", "video_seconds INTEGER NOT NULL DEFAULT 30", "video_size TEXT NOT NULL DEFAULT '1280x720'"],
+    // old_files / old_notes: the current version a model battle redesigns.
+    battles: ["kind TEXT NOT NULL DEFAULT 'page'", "video_seconds INTEGER NOT NULL DEFAULT 30", "video_size TEXT NOT NULL DEFAULT '1280x720'", "old_files TEXT NOT NULL DEFAULT '[]'", "old_notes TEXT NOT NULL DEFAULT ''"],
     // format: html (html, css, js), site (files, index.html first) or video (one video file).
-    entries: ["format TEXT NOT NULL DEFAULT 'html'", "extra TEXT NOT NULL DEFAULT ''", "files TEXT NOT NULL DEFAULT '[]'"],
+    // review: '' (waiting), approved or denied, with the user's note.
+    entries: ["format TEXT NOT NULL DEFAULT 'html'", "extra TEXT NOT NULL DEFAULT ''", "files TEXT NOT NULL DEFAULT '[]'", "review TEXT NOT NULL DEFAULT ''", "review_note TEXT NOT NULL DEFAULT ''", "reviewed_at INTEGER"],
     drafts: ["format TEXT NOT NULL DEFAULT 'html'", "extra TEXT NOT NULL DEFAULT ''", "files TEXT NOT NULL DEFAULT '[]'"],
   };
   for (const [table, cols] of Object.entries(add)) {
@@ -157,7 +162,10 @@ function battleRow(db, r) {
   // Who sent entries, and the winner's number, title and agent, for lists.
   const agents = db.prepare("SELECT agent FROM entries WHERE battle_id = ? AND removed = 0 AND replaced_by IS NULL GROUP BY agent ORDER BY MIN(num)").all(r.id).map((x) => x.agent);
   const w = r.winner_id ? db.prepare("SELECT num, title, agent FROM entries WHERE id = ?").get(r.winner_id) : null;
-  return { ...r, entries: c, agents, winner: w ? { num: w.num, title: w.title, agent: w.agent } : null };
+  const rv = db.prepare("SELECT review, COUNT(*) AS n FROM entries WHERE battle_id = ? AND removed = 0 AND replaced_by IS NULL GROUP BY review").all(r.id);
+  const reviews = { waiting: 0, approved: 0, denied: 0 };
+  for (const x of rv) reviews[x.review || "waiting"] = x.n;
+  return { ...r, old_files: JSON.parse(r.old_files || "[]"), entries: c, agents, reviews, winner: w ? { num: w.num, title: w.title, agent: w.agent } : null };
 }
 
 function entryRow(r, opts) {
@@ -321,9 +329,12 @@ function everyEntry(db, skipId) {
 }
 
 // The sha of a video entry's video file, so the same video sent twice is caught.
+// The one file that makes two entries the same work: a video's file, or a
+// model's .glb.
 function mediaOf(r) {
-  if (r.format !== "video") return "";
-  const f = JSON.parse(r.files || "[]")[0];
+  if (r.format !== "video" && r.format !== "model") return "";
+  const list = Array.isArray(r.files) ? r.files : JSON.parse(r.files || "[]");
+  const f = r.format === "model" ? list.find((x) => files.MODEL_EXT.some((ext) => x.path.toLowerCase().endsWith(ext))) : list[0];
   return f ? f.sha : "";
 }
 
@@ -342,7 +353,14 @@ const given = (v) => v !== undefined && v !== null && v !== "";
 //   video: video (a path to an MP4 or WebM file) and source (how it was made, as code)
 // Files are stored before the battle is checked; a refused entry leaves them
 // unused in blobs, where an identical later file reuses them.
-function work(home, input) {
+function work(home, input, kind) {
+  if (kind === "model") {
+    if (!given(input.folder)) throw new Error("This is a 3D model battle. Send folder: the full path to a folder with your .glb, PNG renders, and .fbx/.obj, .blend and README.md. blender_export and blender_render write them for you.");
+    if (given(input.html) || given(input.files) || given(input.video) || given(input.css) || given(input.js)) throw new Error("A 3D model battle takes only folder.");
+    const m = files.storeModel(dataHome(home), text(input.folder, "folder", 1000));
+    if (m.html.length > MAX_CODE) throw new Error("README.md is longer than " + MAX_CODE + " characters.");
+    return { format: "model", html: m.html, css: "", js: "", extra: m.extra, files: m.files };
+  }
   const site = given(input.folder) || given(input.files);
   const ways = [given(input.html) && "html", site && "folder or files", given(input.video) && "video"].filter(Boolean);
   if (given(input.folder) && given(input.files)) throw new Error("Send folder or files, not both.");
@@ -371,7 +389,8 @@ function work(home, input) {
 // for DRAFT_MINUTES and the agent must call submit with it.
 // input: { battle (number), agent, client, title, html, css, js | folder | files | video, source, notes, replaces (entry number), key }
 function prepare(home, input) {
-  const c = work(home, input);
+  const pre = withDb(home, (db) => findBattle(db, input.battle, { byNum: true }));
+  const c = work(home, input, pre && pre.kind);
   const title = text(input.title, "title", 200);
   const notes = text(input.notes, "notes", 4000, { optional: true });
   const agent = text(input.agent || input.client || "an agent", "agent", 120);
@@ -381,7 +400,8 @@ function prepare(home, input) {
     if (!b) throw new Error("There is no battle " + input.battle + ". Call battles to see the open ones.");
     if (b.status !== "open") throw new Error("Battle " + b.num + " is closed. It takes no more entries.");
     if (c.format === "video" && b.kind !== "video") throw new Error("Battle " + b.num + " is a " + b.kind + " battle. Video files go in video battles; send html, folder or files.");
-    c.media = c.format === "video" ? c.files[0].sha : "";
+    if ((c.format === "model") !== (b.kind === "model")) throw new Error("Battle " + b.num + " changed kind. Call battle_read and send again.");
+    c.media = mediaOf(c);
     let replaces = null;
     if (input.replaces !== undefined && input.replaces !== null) {
       const old = findEntry(db, b, input.replaces);
@@ -459,11 +479,78 @@ function entryFile(home, entry, p) {
   return f ? { file: files.blobPath(dataHome(home), f.sha), type: f.type, size: f.size, path: f.path } : null;
 }
 
+// ---- 3D model battles: the current version and reviews ----
+
+// Where agents read a model battle's current version: ~/.jdebate/old/battle-<num>.
+const oldDir = (home, num) => path.join(dataHome(home), "old", "battle-" + num);
+
+function writeOldDir(home, b) {
+  const dir = oldDir(home, b.num);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of b.old_files) {
+    const to = path.join(dir, ...f.path.split("/"));
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.copyFileSync(files.blobPath(dataHome(home), f.sha), to);
+  }
+  if (b.old_notes) fs.writeFileSync(path.join(dir, "CURRENT-VERSION.md"), b.old_notes);
+  return dir;
+}
+
+// Sets what a model battle redesigns: screenshots or renders of the current
+// version (and its .glb or part list if there is one) from a folder, plus notes.
+// input: { folder, notes }. folder may be left out to change only the notes.
+function setOld(home, battleId, input = {}) {
+  const notes = Object.hasOwn(input, "notes") ? text(input.notes, "notes", MAX_TASK, { optional: true }) : null;
+  const stored = given(input.folder) ? files.storeModel(dataHome(home), text(input.folder, "folder", 1000), { loose: true }).files : null;
+  const b = tx(home, (db) => {
+    const r = findBattle(db, battleId);
+    if (!r) throw new Error("That battle is gone.");
+    if (stored) db.prepare("UPDATE battles SET old_files = ? WHERE id = ?").run(JSON.stringify(stored), r.id);
+    if (notes !== null) db.prepare("UPDATE battles SET old_notes = ? WHERE id = ?").run(notes, r.id);
+    return battleRow(db, findBattle(db, r.id));
+  });
+  writeOldDir(home, b);
+  return b;
+}
+
+// The current-version folder for agents, written again if it went missing.
+function oldFolder(home, b) {
+  if (!b.old_files.length && !b.old_notes) return null;
+  const dir = oldDir(home, b.num);
+  if (!fs.existsSync(dir)) writeOldDir(home, b);
+  return dir;
+}
+
+function oldFile(home, b, p) {
+  let want;
+  try {
+    want = files.cleanPath(p).toLowerCase();
+  } catch {
+    return null;
+  }
+  const f = (b.old_files || []).find((x) => x.path.toLowerCase() === want);
+  return f ? { file: files.blobPath(dataHome(home), f.sha), type: f.type, size: f.size, path: f.path } : null;
+}
+
+// The user approves or denies an entry, with a note the agent reads back.
+function review(home, entryId, status, note) {
+  const st = status === null || status === undefined ? "" : String(status);
+  if (!REVIEWS.includes(st)) throw new Error("review must be approved, denied or empty.");
+  const n = text(note, "note", 4000, { optional: true });
+  return tx(home, (db) => {
+    const e = db.prepare("SELECT * FROM entries WHERE id = ? AND removed = 0").get(String(entryId));
+    if (!e) throw new Error("That entry is gone.");
+    db.prepare("UPDATE entries SET review = ?, review_note = ?, reviewed_at = ? WHERE id = ?").run(st, n, st ? Date.now() : null, e.id);
+    return entryRow(db.prepare("SELECT * FROM entries WHERE id = ?").get(e.id), { noCode: true });
+  });
+}
+
 const blobFile = (home, sha) => files.blobPath(dataHome(home), sha);
 const putBlob = (home, buf) => files.putBlob(dataHome(home), buf);
 
 module.exports = {
-  KINDS, VIDEO_SIZES, entryFile, blobFile, putBlob,
+  KINDS, REVIEWS, VIDEO_SIZES, entryFile, setOld, oldFolder, oldFile, review, blobFile, putBlob,
   dataHome, stamp, openBattle, listBattles, getBattle, closeBattle, reopenBattle, editBattle, removeBattle, setWinner,
   entries, activity, getSetting, setSetting, getEntry, removeEntry, prepare, submit, results, MAX_CODE, DRAFT_MINUTES,
 };

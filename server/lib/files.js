@@ -43,10 +43,22 @@ const TYPES = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".ogg": "audio/ogg",
+  ".glb": "model/gltf-binary",
+  ".gltf": "model/gltf+json",
+  ".bin": "application/octet-stream",
+  ".fbx": "application/octet-stream",
+  ".obj": "text/plain; charset=utf-8",
+  ".mtl": "text/plain; charset=utf-8",
+  ".blend": "application/octet-stream",
+  ".lua": "text/plain; charset=utf-8",
+  ".luau": "text/plain; charset=utf-8",
 };
+// 3D model entries: Blender files and textures are large.
+const MAX_MODEL_BYTES = 200 * 1024 * 1024;
+const MODEL_EXT = [".glb", ".gltf"];
 const VIDEO_EXT = [".mp4", ".m4v", ".webm"];
 // Text files count for the originality check.
-const TEXT_EXT = new Set([".html", ".htm", ".css", ".js", ".mjs", ".json", ".svg", ".txt", ".md", ".xml"]);
+const TEXT_EXT = new Set([".html", ".htm", ".css", ".js", ".mjs", ".json", ".svg", ".txt", ".md", ".xml", ".lua", ".luau", ".py"]);
 
 const typeOf = (p) => TYPES[path.extname(p).toLowerCase()] || "application/octet-stream";
 const isText = (p) => TEXT_EXT.has(path.extname(p).toLowerCase());
@@ -84,7 +96,8 @@ function cleanPath(p) {
 
 // Every file under a folder, as [{ path, buf }]. Skips build and VCS folders,
 // and symlinks, so nothing outside the folder comes along.
-function readFolder(folder) {
+function readFolder(folder, maxBytes) {
+  const limit = maxBytes || MAX_SITE_BYTES;
   const root = path.resolve(String(folder || ""));
   let st;
   try {
@@ -107,7 +120,7 @@ function readFolder(folder) {
       if (out.length >= MAX_FILES) throw new Error("The folder has more than " + MAX_FILES + " files. Send only the site.");
       const buf = fs.readFileSync(full);
       bytes += buf.length;
-      if (bytes > MAX_SITE_BYTES) throw new Error("The folder is more than " + MAX_SITE_BYTES / 1048576 + " MB. Shrink the images or leave out what the site does not use.");
+      if (bytes > limit) throw new Error("The folder is more than " + limit / 1048576 + " MB. Shrink the images or leave out what is not used.");
       out.push({ path: cleanPath(path.relative(root, full)), buf });
     }
   };
@@ -156,6 +169,30 @@ function storeSite(dataHome, { folder, files }) {
   return { html, extra, files: stored };
 }
 
+// A 3D model entry (or a battle's current version) from a folder: a .glb
+// (shown in the 3D viewer), PNG renders, and any of .fbx, .obj, .blend and a
+// README.md with the part list and Roblox import notes. Returns
+// { html: README text, extra: other text files, files: list }, the .glb and
+// renders first.
+function storeModel(dataHome, folder, opts) {
+  const list = readFolder(folder, MAX_MODEL_BYTES);
+  const need = !(opts && opts.loose);
+  const glb = list.filter((f) => MODEL_EXT.includes(path.extname(f.path).toLowerCase()));
+  const pngs = list.filter((f) => /\.(png|jpe?g|webp)$/i.test(f.path));
+  if (need && !glb.length) throw new Error("A 3D model entry needs a .glb file in the folder (export it from Blender with blender_export). JDebate shows it in its 3D viewer.");
+  if (need && !pngs.length) throw new Error("A 3D model entry needs at least one PNG render in the folder (make them with blender_render).");
+  if (!list.length) throw new Error("The folder is empty.");
+  const readme = list.find((f) => /^readme\.(md|txt)$/i.test(f.path));
+  const rank = (f) => (glb.includes(f) ? 0 : pngs.includes(f) ? 1 : f === readme ? 2 : 3);
+  const sorted = list.sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path));
+  const extra = sorted.filter((f) => f !== readme && isText(f.path)).map((f) => f.buf.toString("utf8")).join("\n").slice(0, 1600000);
+  return {
+    html: readme ? readme.buf.toString("utf8") : "",
+    extra,
+    files: sorted.map((f) => ({ path: f.path, sha: putBlob(dataHome, f.buf), size: f.buf.length, type: typeOf(f.path) })),
+  };
+}
+
 // A finished video file (MP4 or WebM) from a path on this computer.
 function storeVideo(dataHome, file) {
   const full = path.resolve(String(file || ""));
@@ -175,4 +212,4 @@ function storeVideo(dataHome, file) {
   return { path: name, sha: putBlob(dataHome, buf), size: buf.length, type: typeOf(name) };
 }
 
-module.exports = { blobPath, putBlob, storeSite, storeVideo, cleanPath, typeOf, isText, MAX_FILES, MAX_SITE_BYTES, MAX_VIDEO_BYTES, VIDEO_EXT };
+module.exports = { blobPath, putBlob, storeSite, storeVideo, storeModel, MODEL_EXT, MAX_MODEL_BYTES, cleanPath, typeOf, isText, MAX_FILES, MAX_SITE_BYTES, MAX_VIDEO_BYTES, VIDEO_EXT };

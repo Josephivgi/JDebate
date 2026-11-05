@@ -7,12 +7,12 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
-const { shell, clipboard } = require("electron");
+const { shell, clipboard, dialog, BrowserWindow } = require("electron");
 const store = require("../server/lib/store.js");
 const { isText } = require("../server/lib/files.js");
 const install = require("../core/install.cjs");
 const { Readable } = require("node:stream");
-const { compose, videoPage, guard, cspFor, CSP } = require("../core/preview.cjs");
+const { compose, videoPage, modelPage, modelCsp, guard, cspFor, origin, CSP } = require("../core/preview.cjs");
 const { createUpdater, RELEASES_URL } = require("./updater.cjs");
 const { writeEntry } = require("../core/export.cjs");
 const video = require("./video.cjs");
@@ -47,6 +47,20 @@ function createBackend(opts) {
   handle("battle-remove", (bid) => store.removeBattle(HOME, id(bid)));
   handle("winner", (bid, eid) => store.setWinner(HOME, id(bid), eid ? id(eid) : null));
   handle("entry", (eid) => store.getEntry(HOME, id(eid)));
+  // 3D model battles: approve or deny an entry, and set the current version.
+  handle("review", (eid, status, note) => store.review(HOME, id(eid), status || "", note || ""));
+  handle("battle-old-notes", (bid, notes) => store.setOld(HOME, id(bid), { notes: String(notes || "") }));
+  handle("battle-old-folder", async (bid, folder) => {
+    let dir = folder ? String(folder) : "";
+    if (!dir) {
+      if (SMOKE) throw new Error("No folder given.");
+      const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const r = await dialog.showOpenDialog(win, { title: "Folder with screenshots of the current version", properties: ["openDirectory"] });
+      if (r.canceled || !r.filePaths[0]) return null;
+      dir = r.filePaths[0];
+    }
+    return store.setOld(HOME, id(bid), { folder: dir });
+  });
   handle("entry-remove", (eid) => store.removeEntry(HOME, id(eid)));
   // One text file of a site entry, for its Files tab.
   handle("entry-text", (eid, file) => {
@@ -155,8 +169,40 @@ function fileResponse(req, f, headers) {
   });
 }
 
+// three.js for the 3D viewer, from the app's own node_modules.
+const THREE_DIR = path.join(__dirname, "..", "node_modules", "three");
+function threeResponse(p) {
+  const rel = p.slice("__jdebate/three/".length);
+  if (!/^(build|examples\/jsm)\/[A-Za-z0-9_\-./]+\.js$/.test(rel) || rel.includes("..")) return notFound();
+  const file = path.join(THREE_DIR, ...rel.split("/"));
+  if (!fs.existsSync(file)) return notFound();
+  return new Response(fs.readFileSync(file), { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "max-age=3600", "access-control-allow-origin": "*" } });
+}
+
+const isModel = (f) => /\.(glb|gltf)$/i.test(f.path);
+const isImage = (f) => /\.(png|jpe?g|webp)$/i.test(f.path);
+
+// jdebate-preview://old-<battle id>/: a model battle's current version.
+function oldResponse(HOME, req, bid, p) {
+  const b = store.getBattle(HOME, bid);
+  if (!b) return notFound();
+  const o = origin("old-" + bid);
+  if (p.startsWith("__jdebate/three/")) return threeResponse(p);
+  if (p === "index.html") {
+    const glb = b.old_files.find(isModel);
+    return new Response(guard(modelPage(glb ? glb.path : null, b.old_files.filter(isImage).map((f) => f.path))), { headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": modelCsp(o), "cache-control": "no-store" } });
+  }
+  const f = store.oldFile(HOME, b, p);
+  return f ? fileResponse(req, f, { "content-security-policy": modelCsp(o) }) : notFound();
+}
+
 function previewResponse(HOME, req) {
   const u = new URL(req.url);
+  if (u.hostname.startsWith("old-")) {
+    let op = decodeURIComponent(u.pathname).replace(/^\/+/, "");
+    if (!op || op.endsWith("/")) op += "index.html";
+    return oldResponse(HOME, req, u.hostname.slice(4), op);
+  }
   // jdebate-preview://entry/<id>: links from before entries had their own origin.
   const legacy = u.hostname === "entry";
   const entry = store.getEntry(HOME, legacy ? u.pathname.slice(1) : u.hostname);
@@ -164,6 +210,16 @@ function previewResponse(HOME, req) {
   const page = (html) => new Response(guard(html), { headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": legacy ? CSP : cspFor(entry.id), "cache-control": "no-store" } });
   let p = legacy ? "" : decodeURIComponent(u.pathname).replace(/^\/+/, "");
   if (!p || p.endsWith("/")) p += "index.html";
+  if (entry.format === "model") {
+    const csp = { "content-security-policy": modelCsp(origin(entry.id)) };
+    if (p.startsWith("__jdebate/three/")) return threeResponse(p);
+    if (p === "index.html" && !store.entryFile(HOME, entry, p)) {
+      const glb = entry.files.find(isModel);
+      return new Response(guard(modelPage(glb ? glb.path : null, entry.files.filter(isImage).map((f) => f.path))), { headers: Object.assign({ "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, csp) });
+    }
+    const mf = store.entryFile(HOME, entry, p);
+    return mf ? fileResponse(req, mf, csp) : notFound();
+  }
   if (entry.format === "video") return p === "index.html" ? page(videoPage(entry.files[0].path)) : (store.entryFile(HOME, entry, p) ? fileResponse(req, store.entryFile(HOME, entry, p)) : notFound());
   if (entry.format !== "site") return p === "index.html" ? page(compose(entry)) : notFound();
   // A site: the file at the path, or path.html, or path/index.html.

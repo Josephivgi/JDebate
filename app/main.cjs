@@ -34,7 +34,7 @@ else {
 }
 
 // Entry pages load from jdebate-preview://<entry id>/ in a sandboxed frame.
-protocol.registerSchemesAsPrivileged([{ scheme: "jdebate-preview", privileges: { standard: true, secure: true } }]);
+protocol.registerSchemesAsPrivileged([{ scheme: "jdebate-preview", privileges: { standard: true, secure: true, corsEnabled: true, supportFetchAPI: true } }]);
 
 function handle(name, fn) {
   ipcMain.handle(name, async (_e, ...args) => {

@@ -364,3 +364,27 @@ dialog h2 { font-size: 17px; }
   .split, .split.stacked { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: var(--split, 58%) 7px minmax(0, 1fr); min-height: 760px; }
   .split .gutter { cursor: row-resize; }
 }
+
+/* 3D model battles: current version, reviews, old and new */
+.thumb-img { display: block; width: 100%; height: 100%; object-fit: contain; background: #2b2e34; }
+.thumb.dark .frame-box { display: grid; place-items: center; color: var(--muted); background: #2b2e34; }
+.review { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 500; overflow-wrap: anywhere; }
+.review.approved { color: var(--ok-text); }
+.review.denied { color: var(--danger-text); }
+.btn.on-ok { color: var(--ok-text); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 10%, var(--surface)); }
+.btn.on-bad { color: var(--danger-text); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); background: color-mix(in srgb, var(--danger) 9%, var(--surface)); }
+.old .section-head { margin: 0; }
+.old-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.old-img { flex: none; height: 150px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: #2b2e34; }
+.old-img img { display: block; height: 100%; width: auto; }
+.lightbox { position: fixed; inset: 0; z-index: 50; background: rgba(10, 11, 14, 0.86); display: grid; place-items: center; padding: 24px; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.lightbox .btn { position: fixed; top: 14px; right: 14px; }
+.compare { flex: 1; min-height: 0; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.review-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.cmp-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.cmp-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cmp-col h3 { font-size: 13px; font-weight: 600; margin: 0; }
+.cmp-col figure { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.cmp-col img { width: 100%; border-radius: 7px; border: 1px solid var(--line); background: #2b2e34; }
+@media (max-width: 900px) { .cmp-cols { grid-template-columns: minmax(0, 1fr); } }

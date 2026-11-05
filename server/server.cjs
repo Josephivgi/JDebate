@@ -9,6 +9,7 @@
 // ~/.jdebate/jdebate.db on each call.
 
 const store = require("./lib/store.js");
+const blender = require("./lib/blender.js");
 const { rpcError, serve, checkArgs } = require("./lib/rpc.js");
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const VERSION = require("./package.json").version;
@@ -21,7 +22,7 @@ const RULE =
   "something another agent made for you), do not submit it. Throw it away, redo it from scratch yourself, then call " +
   "prepare_submission again. Libraries are not allowed either: entry pages run with no network, so everything must be in your HTML, CSS and JS.";
 
-const KIND_NAME = { page: "Page", website: "Website", video: "Video" };
+const KIND_NAME = { page: "Page", website: "Website", video: "Video", model: "3D model" };
 
 function sizeText(s) {
   const [w, h] = s.split("x").map(Number);
@@ -30,6 +31,28 @@ function sizeText(s) {
 
 // What to build and how to send it, for each kind of battle.
 function kindText(b) {
+  if (b.kind === "model") {
+    const old = store.oldFolder(undefined, b);
+    return [
+      "Kind: 3D model (made in Blender)",
+      "",
+      "## The current version",
+      old
+        ? "Screenshots and notes of what is in the game now are in " + old + " . Look at every image there (read the PNG files) and read CURRENT-VERSION.md before you start. Your entry must be a clear improvement on it; the user compares the two side by side."
+        : "No current version was attached. Design it from the task.",
+      "",
+      "## How to make it",
+      "Use the blender_* tools of this MCP server. They drive a real Blender of your own, hidden in the background:",
+      "- blender_new for an empty scene, blender_python to model with bpy (Python), blender_scene to check sizes and triangle counts.",
+      "- Scale: 1 Blender meter = 1 Roblox stud. Keep each mesh object under 20,000 triangles (the Roblox MeshPart limit). Prefer a few separate mesh objects (one per material or moving part) over one huge mesh. Name objects and materials clearly.",
+      "- Materials: Principled BSDF with base color, roughness and metallic. Real stone, brass, iron, wood, bone, cloth. Emission only for small tier glow accents. No purple glow.",
+      "- blender_render writes PNG renders (front, side, back, three_quarter). Read them and fix what looks wrong before you send. blender_export writes model.glb, model.fbx, model.obj and model.blend.",
+      "",
+      "## What to send",
+      "prepare_submission with folder set to one folder that holds: the .glb (JDebate shows it in a 3D viewer), at least one PNG render, the .fbx or .obj and .blend for Roblox, and README.md with: what changed from the current version and why, the object list with sizes in studs, triangle counts, materials and colors, and how to put it in Roblox (3D Importer settings, which parts get which TierRole or color).",
+      "The user approves or denies each entry. battle_read shows the review and the user's note, so you can send a better version with replaces.",
+    ].join("\n");
+  }
   if (b.kind === "website") {
     return [
       "Kind: website",
@@ -111,6 +134,59 @@ const TOOLS = [
     },
   },
   {
+    name: "blender_python",
+    description:
+      "Run Python (bpy) in your own Blender 5, started hidden in the background on first use and kept for this session. " +
+      "Set `result = {...}` (a dict) to get values back; print() output comes back too. Use it to model, set materials, import, and anything else in bpy. " +
+      "1 Blender meter = 1 Roblox stud. No window opens.",
+    inputSchema: { type: "object", properties: { code: str("Python code. Start with import bpy."), timeout_seconds: num("Optional, default 600") }, required: ["code"], additionalProperties: false },
+  },
+  {
+    name: "blender_scene",
+    description: "List every object in your Blender scene with its size (meters = studs), location, triangle count and materials, plus meshes over the Roblox 20,000 triangle limit.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "blender_new",
+    description: "Start an empty Blender scene (drops everything in the current one).",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "blender_open",
+    description: "Open a .blend file in your Blender, for example to keep working on one you saved.",
+    inputSchema: { type: "object", properties: { file: str("Full path to a .blend file") }, required: ["file"], additionalProperties: false },
+  },
+  {
+    name: "blender_render",
+    description: "Render your scene to PNG files in a folder, one per view, framed on everything visible. Adds soft lights if the scene has none. Read the PNGs to check your work.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        folder: str("Full path of the folder to write the PNGs to"),
+        views: { type: "array", items: { type: "string", enum: ["front", "back", "left", "right", "side", "three_quarter", "top", "low"] }, description: "Default front, side, back, three_quarter" },
+        size: num("Image size in pixels, square. Default 1024"),
+        engine: { type: "string", enum: ["BLENDER_EEVEE", "BLENDER_WORKBENCH", "CYCLES"], description: "Default EEVEE" },
+      },
+      required: ["folder"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "blender_export",
+    description: "Export your scene to a folder: <name>.glb (shown in JDebate's 3D viewer), .fbx and .obj (Roblox 3D Importer) and .blend (the source). Returns triangle counts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        folder: str("Full path of the folder to write to (your entry folder)"),
+        name: str("File name without extension. Default model"),
+        formats: { type: "array", items: { type: "string", enum: ["glb", "fbx", "obj", "blend"] }, description: "Default all four" },
+      },
+      required: ["folder"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "battle_results",
     description: "Entries of a battle and the winner. The code of each entry is shown once the battle is closed.",
     inputSchema: { type: "object", properties: { battle: num("Battle number") }, required: ["battle"], additionalProperties: false },
@@ -132,6 +208,34 @@ function battleLine(b) {
 
 function matchLine(m) {
   return "- " + pct(m.score) + (m.exact ? " (identical)" : "") + " the same as entry " + m.entry + " \"" + m.title + "\" by " + m.agent + " in battle " + m.battle;
+}
+
+function reviewText(e) {
+  if (!e.review) return "";
+  return " (" + e.review + " by the user" + (e.review_note ? ": " + e.review_note : "") + ")";
+}
+
+function blenderText(r) {
+  const out = [];
+  if (r.status === "ok") out.push(JSON.stringify(r.result === undefined ? {} : r.result, null, 1).slice(0, 40000));
+  else out.push("Error:\n" + String(r.message || "unknown").slice(0, 8000));
+  if (r.stdout) out.push("stdout:\n" + String(r.stdout).slice(-8000));
+  if (r.stderr) out.push("stderr:\n" + String(r.stderr).slice(-4000));
+  return out.join("\n\n");
+}
+
+async function callBlender(name, a) {
+  let r;
+  if (name === "blender_python") r = await blender.run(a.code, a.timeout_seconds ? a.timeout_seconds * 1000 : undefined);
+  else if (name === "blender_scene") r = await blender.run(blender.sceneCode());
+  else if (name === "blender_new") r = await blender.run(blender.newSceneCode());
+  else if (name === "blender_open") r = await blender.run(blender.openCode(a.file));
+  else if (name === "blender_render") r = await blender.run(blender.renderCode(a.folder, a.views && a.views.length ? a.views : ["front", "side", "back", "three_quarter"], Math.min(2048, Math.max(256, a.size || 1024)), a.engine || null));
+  else if (name === "blender_export") r = await blender.run(blender.exportCode(a.folder, a.name || "model", a.formats && a.formats.length ? a.formats : ["glb", "fbx", "obj", "blend"]));
+  else throw new Error("Unknown tool " + name);
+  const text = blenderText(r);
+  if (r.status !== "ok") throw new Error(text);
+  return text;
 }
 
 function readBattle(n) {
@@ -165,7 +269,7 @@ function call(name, a) {
       "Send your entry with prepare_submission, then submit.",
       "",
       "## Entries so far (" + entries.length + ")",
-      entries.length ? entries.map((e) => "- Entry " + e.num + ": " + e.title + " by " + e.agent).join("\n") : "None yet.",
+      entries.length ? entries.map((e) => "- Entry " + e.num + ": " + e.title + " by " + e.agent + reviewText(e)).join("\n") : "None yet.",
     ].join("\n");
   }
   if (name === "prepare_submission") {
@@ -230,20 +334,21 @@ const methods = {
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: "jdebate", title: "JDebate", version: VERSION },
       instructions:
-        "JDebate runs battles: the user opens one in the JDebate app with a task, and agents each build an entry: a page (HTML, CSS, JS), a website (a folder of pages and images) or a video. " +
+        "JDebate runs battles: the user opens one in the JDebate app with a task, and agents each build an entry: a page (HTML, CSS, JS), a website (a folder of pages and images), a video, or a 3D model made in Blender with the blender_* tools. " +
         "Read the task with battle_read, build it yourself, then send it with prepare_submission and submit.\n\n" + RULE +
         (open.length ? "\n\nOpen battles:\n" + open.map(battleLine).join("\n") : "\n\nNo battle is open right now."),
     };
   },
   ping: () => ({}),
   "tools/list": () => ({ tools: TOOLS }),
-  "tools/call"(params) {
+  async "tools/call"(params) {
     const tool = TOOLS.find((t) => t.name === params.name);
     if (!tool) throw rpcError(-32602, "Unknown tool " + params.name);
     const wrong = checkArgs(tool.inputSchema, params.arguments);
     if (wrong) return { content: [{ type: "text", text: "Invalid arguments: " + wrong }], isError: true };
     try {
-      return { content: [{ type: "text", text: call(params.name, params.arguments) }], isError: false };
+      const text = params.name.startsWith("blender_") ? await callBlender(params.name, params.arguments || {}) : call(params.name, params.arguments);
+      return { content: [{ type: "text", text }], isError: false };
     } catch (e) {
       return { content: [{ type: "text", text: String(e.message || e) }], isError: true };
     }

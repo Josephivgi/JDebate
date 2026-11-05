@@ -82,6 +82,9 @@ const I = {
   full: "M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5",
   unfull: "M7.5 3v4.5H3M17 7.5h-4.5V3M12.5 17v-4.5H17M3 12.5h4.5V17",
   lock: "M4.5 9h11v8h-11zM7 9V6.5a3 3 0 0 1 6 0V9",
+  check: "M4 10.5l4 4 8-9",
+  cross: "M5 5l10 10M15 5L5 15",
+  cube: "M10 2.5l7 4v7l-7 4-7-4v-7zM3 6.5l7 4 7-4M10 10.5v7",
   sun: "M10 6.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6L16 16M4 16l1.4-1.4M14.6 5.4L16 4",
   moon: "M16.5 12A7 7 0 0 1 8 3.5a7 7 0 1 0 8.5 8.5z",
   auto: "M10 2.5a7.5 7.5 0 1 1 0 15 7.5 7.5 0 0 1 0-15zM10 2.5v15",
@@ -154,6 +157,9 @@ function go(p) {
   flash = null;
   confirm = null;
   editing = null;
+  reviewNote = null;
+  bigImage = "";
+  oldNotesEdit = null;
   mounted = null;
   render();
   $main.scrollTop = 0;
@@ -262,12 +268,13 @@ let draftErr = "";
 const KINDS = [
   { id: "page", label: "Page", hint: "One page in HTML, CSS and JS.", title: "Weather card", task: "Build a weather card for one city with a 5 day forecast. Plain HTML, CSS and JS. It should look good at 360 px and 1280 px wide." },
   { id: "website", label: "Website", hint: "A whole site with pages, styles, scripts and images. Agents build it in a folder and send the folder.", title: "Bakery website", task: "Make a website for a small bakery: a home page, a menu page and a contact page, with a shared header and footer. It must work on a phone and on a 1280 px screen." },
+  { id: "model", label: "3D model", hint: "A 3D model made in Blender. Agents use the blender tools of the jdebate server and send a .glb, renders and Roblox files. You compare each with the current version and approve or deny it.", title: "Dungeon gate redesign", task: "Redesign the dungeon portcullis gate for Boss Dungeons in Blender. Stone arch, iron bars, brass trim. Under 60 parts' worth of detail, each mesh under 20,000 triangles." },
   { id: "video", label: "Video", hint: "A clip. Agents send an animation page that JDebate records, or a video file they made.", title: "30 second product demo", task: "Make a 30 second demo video for JVoice. Show what it does in three steps, with large readable text and a clear ending." },
 ];
 const kindOf = (id) => KINDS.find((k) => k.id === id) || KINDS[0];
 const SIZES = [["1280x720", "Wide (16:9)"], ["1080x1920", "Tall (9:16)"], ["1080x1080", "Square"]];
 const sizeName = (s) => (SIZES.find((x) => x[0] === s) || [s, s])[1];
-const kindLine = (b) => (b.kind === "website" ? "Website" : b.kind === "video" ? "Video, " + b.video_seconds + " s, " + sizeName(b.video_size).toLowerCase() : "Page");
+const kindLine = (b) => (b.kind === "model" ? "3D model" : b.kind === "website" ? "Website" : b.kind === "video" ? "Video, " + b.video_seconds + " s, " + sizeName(b.video_size).toLowerCase() : "Page");
 
 function seg(items, value, onpick, label, role) {
   return h("div", { class: "seg", role: role || "group", "aria-label": label }, items.map(([k, text, aria]) =>
@@ -437,7 +444,8 @@ let showPrompt = false;
 function agentPrompt(b) {
   const what = b.kind === "website"
     ? " It is a website: build it in a folder and send the folder."
-    : b.kind === "video" ? " It is a " + b.video_seconds + " second video: send an animation page or a video file you made." : "";
+    : b.kind === "video" ? " It is a " + b.video_seconds + " second video: send an animation page or a video file you made."
+    : b.kind === "model" ? " It is a 3D model battle: look at the current version first, build your model in Blender with the jdebate blender_* tools, and send the folder with the .glb, renders, Roblox files and README.md." : "";
   return "Join JDebate battle " + b.num + " (\"" + b.title + "\")." + what + " Use the jdebate MCP tools: read the task with battle_read " + b.num + ", build your entry yourself from scratch, then send it with prepare_submission and submit. Do not copy, fork or clone anyone else's work.";
 }
 
@@ -520,7 +528,64 @@ function matchNote(e, battleNum) {
 }
 
 const pages = (e) => e.files.filter((f) => /\.html?$/i.test(f.path)).length;
-const formatNote = (e) => (e.format === "site" ? " · " + plural(pages(e), "page", "pages") + ", " + plural(e.files.length, "file", "files") : e.format === "video" ? " · video file" : "");
+const formatNote = (e) => (e.format === "model" ? " · 3D model" : e.format === "site" ? " · " + plural(pages(e), "page", "pages") + ", " + plural(e.files.length, "file", "files") : e.format === "video" ? " · video file" : "");
+
+// ---- 3D model battles ----
+
+const REVIEW_LABEL = { approved: "Approved", denied: "Denied" };
+const firstImage = (list) => (list || []).find((f) => /\.(png|jpe?g|webp)$/i.test(f.path));
+const previewUrl = (host, p) => "jdebate-preview://" + host + "/" + p.split("/").map(encodeURIComponent).join("/");
+
+function reviewState(e) {
+  if (!e.review) return h("span", { class: "hint", text: "Waiting for review" });
+  return h("span", { class: "review " + e.review }, icon(e.review === "approved" ? I.check : I.cross, 13), REVIEW_LABEL[e.review] + (e.review_note ? ": " + e.review_note : ""));
+}
+
+function setReview(e, status, note) {
+  const prev = [e.review, e.review_note];
+  const next = e.review === status && note === undefined ? "" : status;
+  return act(() => api.review(e.id, next, note === undefined ? e.review_note : note),
+    next ? "Entry " + e.num + " " + next + "." + (next === "denied" ? " The agent sees your note in battle_read." : "") : "Review cleared.",
+    () => api.review(e.id, prev[0], prev[1]));
+}
+
+function reviewButtons(e, small) {
+  const cls = small ? " small" : "";
+  return [
+    h("button", { class: "btn" + cls + (e.review === "approved" ? " on-ok" : ""), "aria-pressed": String(e.review === "approved"), disabled: busy, onclick: () => setReview(e, "approved") }, icon(I.check, 14), e.review === "approved" ? "Approved" : "Approve"),
+    h("button", { class: "btn quiet" + cls + (e.review === "denied" ? " on-bad" : ""), "aria-pressed": String(e.review === "denied"), disabled: busy, onclick: () => setReview(e, "denied") }, icon(I.cross, 14), e.review === "denied" ? "Denied" : "Deny"),
+  ];
+}
+
+let oldNotesEdit = null; // text while editing the current version notes
+
+function oldPanel(b) {
+  if (b.kind !== "model") return null;
+  const imgs = (b.old_files || []).filter((f) => /\.(png|jpe?g|webp)$/i.test(f.path));
+  const r = b.reviews || { waiting: 0, approved: 0, denied: 0 };
+  return h("section", { class: "panel panel-pad old" },
+    h("div", { class: "section-head" },
+      h("h2", { text: "Current version" }),
+      h("span", { class: "note grow", text: imgs.length ? plural(imgs.length, "image", "images") + " of what is in the game now. Agents see these in battle_read." : "No screenshots yet. Add a folder with screenshots of what is in the game now." }),
+      h("span", { class: "note", text: r.approved + " approved · " + r.denied + " denied · " + r.waiting + " waiting" }),
+      h("button", { class: "btn small", disabled: busy, onclick: () => act(() => api.setOldFolder(b.id), (x) => (x ? "Current version updated." : "")) }, icon(I.folder, 14), imgs.length ? "Change images" : "Add images")),
+    imgs.length ? h("div", { class: "old-strip" }, imgs.map((f) => h("a", { class: "old-img", href: "#", title: f.path, onclick: (ev) => { ev.preventDefault(); bigImage = previewUrl("old-" + b.id, f.path); render(); } }, h("img", { src: previewUrl("old-" + b.id, f.path), alt: f.path, loading: "lazy" })))) : null,
+    oldNotesEdit !== null
+      ? h("form", { class: "stack", onsubmit: (ev) => { ev.preventDefault(); act(async () => { await api.setOldNotes(b.id, oldNotesEdit); oldNotesEdit = null; }, "Notes saved."); } },
+          h("textarea", { "aria-label": "Current version notes", rows: "4", oninput: (ev) => { oldNotesEdit = ev.target.value; } }, oldNotesEdit),
+          h("div", { class: "row-actions" }, h("button", { class: "btn small primary", type: "submit", disabled: busy }, "Save notes"), h("button", { class: "btn small", type: "button", onclick: () => { oldNotesEdit = null; render(); } }, "Cancel")))
+      : h("div", { class: "row-actions" }, h("p", { class: "task-text grow", text: b.old_notes || "No notes." }), h("button", { class: "btn small quiet", onclick: () => { oldNotesEdit = b.old_notes || ""; render(); } }, "Edit notes")),
+  );
+}
+
+let bigImage = ""; // an image shown over the page
+
+function bigImageView() {
+  if (!bigImage) return null;
+  const close = () => { bigImage = ""; render(); };
+  return h("div", { class: "lightbox", role: "dialog", "aria-label": "Image", tabindex: "-1", onclick: close, onkeydown: (ev) => { if (ev.key === "Escape") close(); } },
+    h("img", { src: bigImage, alt: "" }), h("button", { class: "btn small fs-exit-on", onclick: close }, "Close"));
+}
 
 function setWinner(b, e) {
   const prev = b.winner_id;
@@ -547,6 +612,11 @@ function cardBody(e) {
           h("span", { class: "hint grow", text: "Remove this entry?" }),
           h("button", { class: "btn small danger", disabled: busy, onclick: () => act(async () => { await api.removeEntry(e.id); confirm = null; }, "Entry " + e.num + " removed.") }, "Remove"),
           h("button", { class: "btn small", "data-focus-key": "confirm-cancel", onclick: () => { confirm = null; render(); } }, "Cancel"))
+      : b.kind === "model"
+      ? [h("div", { class: "row-actions" }, reviewState(e)), h("div", { class: "row-actions" },
+          reviewButtons(e, true),
+          h("button", { class: "btn small quiet", disabled: busy, title: "Open the folder with this entry's files", onclick: () => act(() => api.entryFolder(e.id)) }, icon(I.folder, 14), "Folder"),
+          h("button", { class: "btn small quiet danger", "aria-label": "Remove entry " + e.num, disabled: busy, onclick: () => { confirm = { kind: "entry", id: e.id }; render(); focusLater("confirm-cancel"); } }, "Remove"))]
       : h("div", { class: "row-actions" },
           winButton(b, e, true),
           h("button", { class: "btn small quiet", disabled: busy, title: "Open the folder with this entry's files", onclick: () => act(() => api.entryFolder(e.id)) }, icon(I.folder, 14), "Folder"),
@@ -613,8 +683,10 @@ function card(e) {
   const b = battleData.battle;
   return h("article", { class: "panel ecard" + (b.winner_id === e.id ? " won" : ""), "data-entry": e.id },
     h("span", { class: "ribbon" }, icon(I.star, 13, true), "Winner"),
-    h("div", { class: "thumb" + (b.kind === "video" ? " dark" : "") },
-      frame(e.id, "Entry " + e.num + ": " + e.title, viewOf(b, { card: true })),
+    h("div", { class: "thumb" + (b.kind === "video" || b.kind === "model" ? " dark" : "") },
+      b.kind === "model"
+        ? (firstImage(e.files) ? h("img", { class: "thumb-img", src: previewUrl(e.id, firstImage(e.files).path), alt: "" }) : h("div", { class: "frame-box" }, icon(I.cube, 32)))
+        : frame(e.id, "Entry " + e.num + ": " + e.title, viewOf(b, { card: true })),
       h("button", { class: "over", "aria-label": "Open entry " + e.num, onclick: () => go("entry:" + e.id) }, h("span", {}, icon(I.open, 14), "Open entry"))),
     cardBody(e),
   );
@@ -629,8 +701,8 @@ function renderBattle() {
   }
   const b = battleData.battle;
   if (!mounted || mounted.bid !== bid || !$main.contains(mounted.root)) {
-    const parts = { head: h("div"), notes: h("div", { class: "stack" }), task: h("div"), winner: h("div"), entriesHead: h("div", { class: "section-head" }), grid: h("div", { class: "cards" }) };
-    const root = h("div", { class: "page" }, parts.head, parts.notes, parts.task, parts.winner, h("section", { class: "section" }, parts.entriesHead, parts.grid));
+    const parts = { head: h("div"), notes: h("div", { class: "stack" }), task: h("div"), old: h("div"), big: h("div"), winner: h("div"), entriesHead: h("div", { class: "section-head" }), grid: h("div", { class: "cards" }) };
+    const root = h("div", { class: "page" }, parts.head, parts.notes, parts.task, parts.old, parts.big, parts.winner, h("section", { class: "section" }, parts.entriesHead, parts.grid));
     $main.replaceChildren(root);
     mounted = { bid, root, parts, cards: new Map() };
   }
@@ -638,7 +710,9 @@ function renderBattle() {
   p.head.replaceChildren(battleHead(b));
   p.notes.replaceChildren(...[installStrip(), flashView(), confirmView(b)].filter(Boolean));
   if (!(editing && p.task.querySelector("form"))) p.task.replaceChildren(taskPanel(b));
-  p.winner.replaceChildren(...[winnerBanner(b)].filter(Boolean));
+  if (!(oldNotesEdit !== null && p.old.querySelector("textarea"))) p.old.replaceChildren(...[oldPanel(b)].filter(Boolean));
+  p.big.replaceChildren(...[bigImageView()].filter(Boolean));
+  p.winner.replaceChildren(...[b.kind === "model" ? null : winnerBanner(b)].filter(Boolean));
   const n = battleData.entries.length;
   p.entriesHead.replaceChildren(
     h("h2", { text: "Entries" }),
@@ -652,7 +726,7 @@ function renderBattle() {
   const empty = p.grid.querySelector(".cards-empty");
   if (empty && n) empty.remove();
   for (const e of battleData.entries) {
-    const sig = JSON.stringify([e.title, e.agent, e.matches, b.winner_id === e.id, confirm && confirm.id === e.id, busy, ago(e.created_at)]);
+    const sig = JSON.stringify([e.review, e.review_note, e.title, e.agent, e.matches, b.winner_id === e.id, confirm && confirm.id === e.id, busy, ago(e.created_at)]);
     const have = mounted.cards.get(e.id);
     if (!have) {
       const el = card(e);
@@ -713,6 +787,29 @@ function filesView(e) {
   );
 }
 
+// The current version next to the entry's renders, for approve or deny.
+function compareView(e, b) {
+  const old = b ? (b.old_files || []).filter((f) => /\.(png|jpe?g|webp)$/i.test(f.path)) : [];
+  const fresh = e.files.filter((f) => /\.(png|jpe?g|webp)$/i.test(f.path));
+  const col = (label, host, list, empty) => h("div", { class: "cmp-col" },
+    h("h3", { text: label }),
+    list.length ? list.map((f) => h("figure", {}, h("img", { src: previewUrl(host, f.path), alt: f.path, loading: "lazy" }), h("figcaption", { class: "hint", text: f.path }))) : h("p", { class: "hint", text: empty }));
+  return h("div", { class: "compare" },
+    h("div", { class: "review-box" },
+      h("div", { class: "row-actions" }, h("span", { class: "label grow", text: "Your review" }), reviewState(e)),
+      h("textarea", { "aria-label": "Review note", rows: "2", placeholder: "Note for the agent: what to keep, what to change", oninput: (ev) => { reviewNote = ev.target.value; } }, reviewNote === null ? e.review_note || "" : reviewNote),
+      h("div", { class: "row-actions" },
+        h("button", { class: "btn primary", disabled: busy, onclick: () => setReview(e, "approved", reviewNote === null ? e.review_note : reviewNote) }, icon(I.check, 14), "Approve"),
+        h("button", { class: "btn danger", disabled: busy, onclick: () => setReview(e, "denied", reviewNote === null ? e.review_note : reviewNote) }, icon(I.cross, 14), "Deny"),
+        e.review ? h("button", { class: "btn quiet", disabled: busy, onclick: () => act(() => api.review(e.id, "", ""), "Review cleared.") }, "Clear") : null)),
+    h("div", { class: "cmp-cols" },
+      col("Current version (old)", b ? "old-" + b.id : "", old, "No screenshots of the current version were added to this battle."),
+      col("This entry (new)", e.id, fresh, "This entry has no renders. Use the 3D view.")),
+  );
+}
+
+let reviewNote = null;
+
 function notesView(e, b) {
   return h("div", { class: "notes" },
     h("dl", {},
@@ -731,6 +828,7 @@ function notesView(e, b) {
 }
 
 function entryTabs(e) {
+  if (e.format === "model") return [["compare", "Old and new", ""], ["readme", "README", lines(e.html)], ["files", "Files", e.files.length], ["notes", "Notes", ""]];
   if (e.format === "site") return [["files", "Files", e.files.length], ["notes", "Notes", ""]];
   if (e.format === "video") return [e.extra ? ["extra", "Source", lines(e.extra)] : null, ["notes", "Notes", ""]].filter(Boolean);
   return [["html", "HTML", lines(e.html)], ["css", "CSS", lines(e.css)], ["js", "JS", lines(e.js)], ["notes", "Notes", ""]];
@@ -779,29 +877,29 @@ function entryPage() {
   const b = entryBattle && entryBattle.battle;
   const tabs = entryTabs(e);
   if (!tabs.some(([k]) => k === tab)) tab = tabs[0][0];
-  const devices = b && b.kind === "video" ? [] : b && b.kind === "website" ? [["fit", "Desktop"], ["phone", "Phone"]] : [["fit", "Fit"], ["tablet", "Tablet"], ["phone", "Phone"]];
+  const devices = b && (b.kind === "video" || b.kind === "model") ? [] : b && b.kind === "website" ? [["fit", "Desktop"], ["phone", "Phone"]] : [["fit", "Fit"], ["tablet", "Tablet"], ["phone", "Phone"]];
   if (!devices.some(([k]) => k === device)) device = "fit";
   // Built once per entry and view; the head is redrawn around the running frame.
-  const shape = [eid, tab, device, stacked, fileOpen, fileText && fileText.path].join(":");
+  const shape = [eid, tab, device, stacked, fileOpen, fileText && fileText.path, tab === "compare" ? e.review + e.review_note + busy : ""].join(":");
   if (!mounted || mounted.eid !== eid || mounted.shape !== shape || !$main.contains(mounted.root)) {
     const parts = { head: h("div"), flash: h("div", { class: "stack pad" }) };
     const preview = frame(e.id, e.title, viewOf(b, { device, phone: device === "phone" }));
     const copyable = tab !== "notes" && tab !== "files" && e[tab];
     const left = h("section", { class: "pane" },
       h("div", { class: "pbar" },
-        h("span", { class: "title", text: "Preview" }),
+        h("span", { class: "title", text: e.format === "model" ? "3D view" : "Preview" }),
         devices.length ? seg(devices, device, (k) => { device = k; render(); }, "Preview width") : null,
         h("div", { class: "right" },
           h("button", { class: "btn icon quiet", "aria-label": "Reload preview", title: "Reload preview", onclick: () => preview.reload() }, icon(I.reload, 15)),
           h("button", { class: "btn icon quiet", "aria-label": "Full screen", title: "Full screen (F)", "data-fullscreen": "", onclick: () => preview.fullscreen() }, icon(I.full, 15)),
           h("button", { class: "btn icon quiet", "aria-label": stacked ? "Side by side" : "Stack panes", title: stacked ? "Side by side" : "Stack panes", onclick: () => { stacked = !stacked; render(); } }, icon(stacked ? I.cols : I.rows, 15)))),
-      h("div", { class: "stage" + (b && b.kind === "video" ? " dark" : "") }, preview));
+      h("div", { class: "stage" + (b && (b.kind === "video" || b.kind === "model") ? " dark" : "") }, preview));
     const right = h("section", { class: "pane" },
       h("div", { class: "pbar" },
         h("div", { class: "tabs", role: "tablist", "aria-label": "Entry" }, tabs.map(([k, label, count]) =>
           h("button", { type: "button", role: "tab", "aria-selected": String(tab === k), onclick: () => { tab = k; render(); } }, label, count !== "" ? h("small", { text: String(count) }) : null))),
         h("div", { class: "right" }, copyable ? h("button", { class: "btn small quiet", onclick: () => act(() => api.copy(e[tab]), tab.toUpperCase() + " copied.") }, icon(I.copy, 14), "Copy") : null)),
-      tab === "notes" ? notesView(e, b) : tab === "files" ? filesView(e) : e[tab] ? codeView(e[tab]) : h("div", { class: "empty grow" }, h("h3", { text: "No " + tab.toUpperCase() }), h("p", { text: "This entry has no " + tab.toUpperCase() + "." })));
+      tab === "compare" ? compareView(e, b) : tab === "readme" ? (e.html ? codeView(e.html) : h("p", { class: "empty", text: "No README.md in this entry." })) : tab === "notes" ? notesView(e, b) : tab === "files" ? filesView(e) : e[tab] ? codeView(e[tab]) : h("div", { class: "empty grow" }, h("h3", { text: "No " + tab.toUpperCase() }), h("p", { text: "This entry has no " + tab.toUpperCase() + "." })));
     const gutter = h("div", { class: "gutter", role: "separator", tabindex: "0", "aria-label": "Resize panes", "aria-valuenow": String(split), "aria-valuemin": "20", "aria-valuemax": "80", title: "Drag to resize. Double-click to reset." });
     const sp = h("div", { class: "split" + (stacked ? " stacked" : "") }, left, gutter, right);
     sp.style.setProperty("--split", split + "%");
@@ -814,7 +912,9 @@ function entryPage() {
   const idx = list.findIndex((x) => x.id === e.id);
   const prev = idx > 0 ? list[idx - 1] : null;
   const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
-  const record = e.format === "video"
+  const record = e.format === "model"
+    ? reviewButtons(e, false)
+    : e.format === "video"
     ? h("button", { class: "btn quiet", disabled: busy, title: "Opens the video in your video player", onclick: () => act(() => api.entryPlay(e.id), (file) => "Opened in your video player: " + file) }, icon(I.video, 15), "Play video")
     : h("button", { class: "btn quiet", disabled: busy, title: recordHint(b), onclick: () => { savingVideo = true; act(() => api.entryVideo(e.id), (file) => "Video saved: " + file).finally(() => { savingVideo = false; render(); }); } }, icon(I.video, 15), savingVideo ? "Saving video (" + recordSeconds(b) + " s)…" : "Save video");
   mounted.parts.head.replaceChildren(h("div", { class: "ehead" },
@@ -828,7 +928,7 @@ function entryPage() {
       h("button", { class: "btn icon", "aria-label": "Next entry", disabled: !next, onclick: () => next && go("entry:" + next.id) }, icon(I.right, 15)),
       h("button", { class: "btn quiet", disabled: busy, onclick: () => act(() => api.entryFolder(e.id), (dir) => "Opened " + dir) }, icon(I.folder, 15), "Open folder"),
       record,
-      b ? winButton(b, e, false) : null),
+      b && b.kind !== "model" ? winButton(b, e, false) : null),
   ));
   mounted.parts.flash.replaceChildren(...[flashView()].filter(Boolean));
 }
