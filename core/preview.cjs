@@ -80,6 +80,16 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #info{position:fixed;right:8px;bottom:8px;background:rgba(20,22,26,.72);padding:5px 8px;border-radius:7px}
 #msg{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none}
 </style>
+<script>
+// If three.js or a loader cannot load, the module below never runs. Say so
+// at once, so Background load moves on instead of waiting out its timeout.
+addEventListener("error", (e) => {
+  if (!(e.target instanceof HTMLScriptElement) || window.__told) return;
+  window.__told = true;
+  document.getElementById("msg").textContent = "Could not load the 3D viewer.";
+  try { parent.postMessage({ jdebate: "model-error" }, "*"); } catch {}
+}, true);
+</script>
 <script type="importmap">{"imports":{"three":"/__jdebate/three/build/three.module.min.js","three/addons/":"/__jdebate/three/examples/jsm/"}}</script>
 </head><body>
 <div id="msg">Loading model…</div>

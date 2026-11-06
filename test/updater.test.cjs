@@ -139,6 +139,9 @@ test("the release config publishes to the public JDebate repo", () => {
   // The server is copied out of the app folder, so it must stay plain files.
   assert.strictEqual(pkg.build.asar, false);
   assert.ok(pkg.build.files.includes("server/**"));
+  // electron-builder drops node_modules/*/examples by default; the 3D viewer
+  // loads GLTFLoader and OrbitControls from three/examples/jsm.
+  assert.deepStrictEqual(pkg.build.extraResources, [{ from: "node_modules/three/examples/jsm", to: "app/node_modules/three/examples/jsm", filter: ["**/*"] }]);
   assert.ok(pkg.dependencies["electron-updater"]);
   const wf = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "release.yml"), "utf8");
   assert.match(wf, /tags:\s*\["v\*"\]/);

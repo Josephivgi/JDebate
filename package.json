@@ -62,6 +62,15 @@
         "repo": "JDebate",
         "releaseType": "draft"
       }
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/three/examples/jsm",
+        "to": "app/node_modules/three/examples/jsm",
+        "filter": [
+          "**/*"
+        ]
+      }
     ]
   }
 }
