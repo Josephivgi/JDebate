@@ -63,6 +63,37 @@ function createBackend(opts) {
     }
     return store.setOld(HOME, id(bid), { folder: dir });
   });
+  // Background load: makes every thumbnail of a battle and reads its models
+  // once, so the OS has them cached. The window loads the 3D views itself.
+  handle("battle-preload", async (bid) => {
+    const b = store.getBattle(HOME, id(bid));
+    if (!b) throw new Error("That battle is gone.");
+    const t0 = Date.now();
+    const jobs = [];
+    // [file, thumbnail widths the pages use]: the current-version strip (240)
+    // and compare column (960), each card's first image (480), entry images (960).
+    for (const f of b.old_files) jobs.push([store.oldFile(HOME, b, f.path), [240, 960]]);
+    for (const e of store.entries(HOME, b.id, { noCode: true })) {
+      const first = e.files.find(isImage);
+      for (const f of e.files) if (isImage(f) || isModel(f)) jobs.push([store.entryFile(HOME, e, f.path), f === first ? [480, 960] : [960]]);
+    }
+    let images = 0;
+    let models = 0;
+    for (const [f, widths] of jobs) {
+      if (!f) continue;
+      try {
+        if (isImage(f)) {
+          makeThumbs(HOME, f, widths);
+          images++;
+        } else if (isModel(f)) {
+          await fs.promises.readFile(f.file);
+          models++;
+        }
+      } catch {}
+      await new Promise((r) => setImmediate(r));
+    }
+    return { images, models, ms: Date.now() - t0 };
+  });
   handle("entry-remove", (eid) => store.removeEntry(HOME, id(eid)));
   // One text file of a site entry, for its Files tab.
   handle("entry-text", (eid, file) => {
@@ -195,33 +226,74 @@ function threeResponse(p) {
 // full size made the Old and new tab slow to open. JPEG, because PNG encoding
 // takes seconds per image; images with transparency keep their original.
 const THUMB_WIDTHS = [240, 480, 960];
-function makeThumb(HOME, f, width) {
+// Returns the file to serve for each width: a JPEG in thumbs/, or the original
+// when it is already small enough or has transparency. Decodes the image once.
+function makeThumbs(HOME, f, widths) {
   const dir = path.join(store.dataHome(HOME), "thumbs");
-  const base = path.join(dir, path.basename(f.file) + "-" + width);
-  if (fs.existsSync(base + ".jpg")) return base + ".jpg";
-  if (fs.existsSync(base + ".orig")) return f.file;
-  const mark = (ext, body) => {
+  const out = {};
+  const todo = [];
+  for (const width of widths) {
+    const base = path.join(dir, path.basename(f.file) + "-" + width);
+    if (fs.existsSync(base + ".jpg")) out[width] = base + ".jpg";
+    else if (fs.existsSync(base + ".orig")) out[width] = f.file;
+    else todo.push([width, base]);
+  }
+  if (!todo.length) return out;
+  const mark = (base, ext, body) => {
     try {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(base + ext, body);
     } catch {}
   };
-  const img = nativeImage.createFromPath(f.file);
-  if (img.isEmpty() || img.getSize().width <= width * 1.25) {
-    mark(".orig", "");
-    return f.file;
-  }
-  const small = img.resize({ width, quality: "good" });
-  const px = small.toBitmap();
-  for (let i = 3; i < px.length; i += 4) {
-    if (px[i] !== 255) {
-      mark(".orig", "");
-      return f.file;
+  // Most renders are already small enough: read a PNG's width from its header
+  // and skip decoding when no width needs a smaller copy.
+  const headWidth = pngWidth(f.file);
+  if (headWidth && todo.every(([width]) => headWidth <= width * 1.25)) {
+    for (const [width, base] of todo) {
+      mark(base, ".orig", "");
+      out[width] = f.file;
     }
+    return out;
   }
-  mark(".jpg", small.toJPEG(85));
-  return base + ".jpg";
+  const img = nativeImage.createFromPath(f.file);
+  const size = img.isEmpty() ? null : img.getSize();
+  for (const [width, base] of todo) {
+    if (!size || size.width <= width * 1.25) {
+      mark(base, ".orig", "");
+      out[width] = f.file;
+      continue;
+    }
+    const small = img.resize({ width, quality: "good" });
+    const px = small.toBitmap();
+    let opaque = true;
+    for (let i = 3; i < px.length; i += 4) {
+      if (px[i] !== 255) {
+        opaque = false;
+        break;
+      }
+    }
+    if (!opaque) {
+      mark(base, ".orig", "");
+      out[width] = f.file;
+      continue;
+    }
+    mark(base, ".jpg", small.toJPEG(85));
+    out[width] = base + ".jpg";
+  }
+  return out;
 }
+function pngWidth(file) {
+  try {
+    const fd = fs.openSync(file, "r");
+    const b = Buffer.alloc(24);
+    fs.readSync(fd, b, 0, 24, 0);
+    fs.closeSync(fd);
+    return b.readUInt32BE(0) === 0x89504e47 && b.toString("latin1", 12, 16) === "IHDR" ? b.readUInt32BE(16) : 0;
+  } catch {
+    return 0;
+  }
+}
+const makeThumb = (HOME, f, width) => makeThumbs(HOME, f, [width])[width];
 function thumbWidth(req) {
   const w = Number(new URL(req.url).searchParams.get("w"));
   return w ? THUMB_WIDTHS.find((x) => x >= w) || THUMB_WIDTHS[THUMB_WIDTHS.length - 1] : 0;

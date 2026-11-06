@@ -121,7 +121,7 @@ let toastTimer = 0;
 // A short note at the bottom, with an optional action such as Undo or View.
 function toast(text, action) {
   clearTimeout(toastTimer);
-  $toast.replaceChildren(h("span", { text }), action ? h("button", { type: "button", onclick: () => { $toast.classList.remove("on"); action.fn(); } }, action.label) : null);
+  $toast.replaceChildren(...[h("span", { text }), action ? h("button", { type: "button", onclick: () => { $toast.classList.remove("on"); action.fn(); } }, action.label) : null].filter(Boolean));
   $toast.classList.add("on");
   toastTimer = setTimeout(() => $toast.classList.remove("on"), action ? 6000 : 3500);
 }
@@ -476,6 +476,7 @@ function battleHead(b) {
   const open = b.status === "open";
   return head(b.title, (open ? "Open" : "Closed") + " · opened " + ago(b.created_at) + " · " + plural(b.entries, "entry", "entries") + " · " + kindLine(b), [
     copyIdButton(b),
+    backgroundButton(b),
     open
       ? h("button", { class: "btn quiet", disabled: busy, onclick: () => act(() => api.closeBattle(b.id), "Battle closed. Agents can now read every entry's code with battle_results.", () => api.reopenBattle(b.id)) }, icon(I.lock, 14), "Close battle")
       : null,
@@ -635,8 +636,107 @@ function cardBody(e) {
   );
 }
 
+// ---- Background load ----
+//
+// One click loads every 3D view of a battle into hidden frames, one at a time,
+// and makes its thumbnails. Opening an entry then shows its frame that is
+// already running. An iframe reloads when it moves in the page, so pooled
+// frames never move: they live in #frame-pool (fixed) and are placed over the
+// entry's frame box, or parked off screen where Chromium stops drawing them.
+const pool = { bid: "", frames: new Map(), total: 0, ready: 0, running: false, ms: 0 };
+const poolLayer = h("div", { id: "frame-pool", "aria-hidden": "true" });
+document.body.append(poolLayer);
+
+function park(f) {
+  f.el.classList.remove("shown");
+  f.el.setAttribute("tabindex", "-1");
+}
+
+window.addEventListener("message", (ev) => {
+  const state = ev.data && ev.data.jdebate;
+  if (state !== "model-ready" && state !== "model-error") return;
+  for (const f of pool.frames.values()) {
+    if (f.el.contentWindow !== ev.source || f.done) continue;
+    f.done = true;
+    f.error = state === "model-error";
+    if (f.resolve) f.resolve();
+  }
+});
+
+async function backgroundLoad(b) {
+  if (pool.running) return;
+  for (const f of pool.frames.values()) f.el.remove();
+  pool.frames.clear();
+  const list = (battleData && battleData.battle.id === b.id ? battleData.entries : []).filter((e) => e.format === "model" && e.files.some((f) => /\.(glb|gltf)$/i.test(f.path)));
+  Object.assign(pool, { bid: b.id, total: list.length + 1, ready: 0, running: true, ms: 0 });
+  render();
+  const t0 = performance.now();
+  try {
+    await api.preloadBattle(b.id);
+    pool.ready++;
+    render();
+    for (const e of list) {
+      const el = h("iframe", { class: "frame pooled", src: "jdebate-preview://" + e.id + "/", sandbox: "allow-scripts", allow: "fullscreen", title: e.title, referrerpolicy: "no-referrer", tabindex: "-1" });
+      const f = { el, done: false, error: false, resolve: null, box: null };
+      const ready = new Promise((r) => { f.resolve = r; });
+      pool.frames.set(e.id, f);
+      poolLayer.append(el);
+      // A model that never says it is ready still counts after 60 seconds.
+      await Promise.race([ready, new Promise((r) => setTimeout(r, 60000))]);
+      pool.ready++;
+      render();
+    }
+    pool.ms = performance.now() - t0;
+    toast("Battle " + b.num + " loaded in " + (pool.ms / 1000).toFixed(1) + " s. Its entries now open at once.");
+  } catch (err) {
+    flash = { text: "Background load stopped: " + err.message };
+  } finally {
+    pool.running = false;
+    render();
+  }
+}
+
+function backgroundButton(b) {
+  if (b.kind !== "model") return null;
+  const mine = pool.bid === b.id;
+  const label = mine && pool.running ? "Loading " + pool.ready + " of " + pool.total : mine && pool.ready ? "Loaded" : "Background load";
+  return h("button", { class: "btn quiet", disabled: pool.running, title: "Load every 3D view and image of this battle now, so entries open at once", onclick: () => backgroundLoad(b) }, icon(I.reload, 14), label);
+}
+
+// The entry page's frame box for a pooled frame: the running iframe is placed
+// over the box every animation frame while the box is on the page.
+function pooledFrame(id) {
+  const f = pool.frames.get(id);
+  const box = h("div", { class: "frame-box pooled-box" });
+  f.box = box;
+  const place = () => {
+    if (f.box !== box) return;
+    if (!box.isConnected) {
+      park(f);
+      f.box = null;
+      return;
+    }
+    if (!document.fullscreenElement) {
+      const r = box.getBoundingClientRect();
+      const st = f.el.style;
+      st.left = r.left + "px";
+      st.top = r.top + "px";
+      st.width = r.width + "px";
+      st.height = r.height + "px";
+      f.el.classList.add("shown");
+      f.el.removeAttribute("tabindex");
+    }
+    requestAnimationFrame(place);
+  };
+  requestAnimationFrame(place);
+  box.reload = () => { f.el.src = "jdebate-preview://" + id + "/?try=" + Date.now(); };
+  box.fullscreen = () => f.el.requestFullscreen().then(() => f.el.focus(), (err) => { flash = { text: "Could not open full screen: " + err.message }; render(); });
+  return box;
+}
+
 // Loads at once (frames are on screen, lazy only adds a wait). A frame that
-// has not loaded in 3 seconds is loaded again; after two tries it says so
+// has not loaded in 10 seconds is loaded again (3D views on a busy computer
+// took longer than 3, and the reload started them over); after two tries it says so
 // and offers a reload instead of staying blank.
 //
 // view (from viewOf) renders the entry at a fixed size and scales it into
@@ -646,6 +746,7 @@ function cardBody(e) {
 // box.fullscreen() puts the running frame on the whole screen at its real
 // size, no scaling, so sites that break when scaled down show as built.
 function frame(id, label, view) {
+  if (pool.frames.has(id)) return pooledFrame(id);
   const src = "jdebate-preview://" + id + "/";
   const el = h("iframe", { class: "frame", src, sandbox: "allow-scripts", allow: "fullscreen", title: label, referrerpolicy: "no-referrer" });
   const note = h("div", { class: "frame-note", role: "status", hidden: true });
@@ -678,7 +779,7 @@ function frame(id, label, view) {
       if (tries < 2) return load();
       note.hidden = false;
       note.replaceChildren(icon(I.warn, 14), h("span", { text: "This preview did not load." }), h("button", { class: "btn small", onclick: () => { tries = 0; load(); } }, "Reload"));
-    }, 3000);
+    }, 10000);
   };
   el.addEventListener("load", () => {
     clearTimeout(timer);

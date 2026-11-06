@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("jdebate", {
   review: (id, status, note) => call("review", id, status, note),
   setOldNotes: (battleId, notes) => call("battle-old-notes", battleId, notes),
   setOldFolder: (battleId, folder) => call("battle-old-folder", battleId, folder),
+  preloadBattle: (battleId) => call("battle-preload", battleId),
   removeEntry: (id) => call("entry-remove", id),
   entryFolder: (id) => call("entry-folder", id),
   entryVideo: (id) => call("entry-video", id),

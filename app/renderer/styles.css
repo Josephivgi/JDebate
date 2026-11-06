@@ -251,6 +251,12 @@ h4 + .ti::before { top: 20px; }
 /* Entry previews (see frame()) */
 .frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
 .frame-box { position: relative; height: 100%; }
+/* Background load: pooled 3D frames stay in one fixed layer and never move in
+   the page (that would reload them). Parked ones sit off screen. */
+#frame-pool .frame.pooled { position: fixed; left: -20000px; top: 0; width: 960px; height: 640px; z-index: 5; background: #2b2e34; }
+#frame-pool .frame.pooled.shown { visibility: visible; }
+#frame-pool .frame.pooled:not(.shown) { left: -20000px !important; }
+.pooled-box { background: #2b2e34; }
 .frame-note { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; background: var(--surface); color: var(--muted); font-size: 13px; }
 .frame-note svg { color: var(--warn-text); }
 .frame-box.width, .frame-box.contain { overflow: hidden; }

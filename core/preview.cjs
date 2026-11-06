@@ -114,8 +114,12 @@ function frameIt() {
   let tris = 0; model.traverse((o) => { if (o.isMesh) { const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3; } });
   document.getElementById("info").textContent = s.x.toFixed(1) + " × " + s.y.toFixed(1) + " × " + s.z.toFixed(1) + " studs · " + Math.round(tris).toLocaleString() + " triangles";
 }
-new GLTFLoader().load(${esc(encodeURI(glb))}, (g) => { model = g.scene; scene.add(model); frameIt(); document.getElementById("msg").remove(); },
-  undefined, (e) => { document.getElementById("msg").textContent = "Could not load the model: " + (e && e.message || e); });
+// Tells the app when the model is drawn, so Background load knows this frame
+// is ready to show. Not from requestAnimationFrame: Chromium pauses that in
+// frames parked off screen. One render while hidden uploads the buffers.
+const tell = (state) => { try { parent.postMessage({ jdebate: state }, "*"); } catch {} };
+new GLTFLoader().load(${esc(encodeURI(glb))}, (g) => { model = g.scene; scene.add(model); frameIt(); renderer.compile(scene, camera); renderer.render(scene, camera); document.getElementById("msg").remove(); setTimeout(() => tell("model-ready"), 0); },
+  undefined, (e) => { document.getElementById("msg").textContent = "Could not load the model: " + (e && e.message || e); tell("model-error"); });
 const spin = document.getElementById("spin"), wire = document.getElementById("wire");
 spin.onclick = () => { controls.autoRotate = !controls.autoRotate; spin.setAttribute("aria-pressed", String(controls.autoRotate)); };
 wire.onclick = () => { const on = wire.getAttribute("aria-pressed") !== "true"; wire.setAttribute("aria-pressed", String(on)); model && model.traverse((o) => { if (o.isMesh) [].concat(o.material).forEach((m) => { m.wireframe = on; }); }); };
