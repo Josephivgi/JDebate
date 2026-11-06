@@ -164,6 +164,10 @@ function go(p) {
   feedbackEdit = null;
   mounted = null;
   render();
+  // Coming back to a battle or entry seen before: fetch it again, or its
+  // review, winner and notes show how they were on the last visit.
+  // (A page not loaded yet already fetches itself.)
+  if ((p.startsWith("battle:") && battleData && battleData.battle.id === p.slice(7)) || (p.startsWith("entry:") && entryView && entryView.id === p.slice(6))) loadPage();
   $main.scrollTop = 0;
 }
 
@@ -1072,8 +1076,8 @@ function reviewBox(e) {
       h("div", { class: "row-actions" }, h("span", { class: "label grow", text: "Your review" }), reviewState(e)),
       h("textarea", { "aria-label": "Review note", rows: "2", placeholder: "Note for the agent: what to keep, what to change", oninput: (ev) => { reviewNote = { eid: e.id, text: ev.target.value }; } }, reviewNote !== null && reviewNote.eid === e.id ? reviewNote.text : e.review_note || ""),
       h("div", { class: "row-actions" },
-        h("button", { class: "btn primary", disabled: busy, onclick: () => setReview(e, "approved") }, icon(I.check, 14), "Approve"),
-        h("button", { class: "btn danger", disabled: busy, onclick: () => setReview(e, "denied") }, icon(I.cross, 14), "Deny"),
+        h("button", { class: "btn primary", "aria-label": "Approve with note", disabled: busy, onclick: () => setReview(e, "approved") }, icon(I.check, 14), "Approve"),
+        h("button", { class: "btn danger", "aria-label": "Deny with note", disabled: busy, onclick: () => setReview(e, "denied") }, icon(I.cross, 14), "Deny"),
         e.review ? h("button", { class: "btn quiet", disabled: busy, onclick: () => { reviewNote = null; act(() => api.review(e.id, "", ""), "Review cleared."); } }, "Clear") : null));
 }
 

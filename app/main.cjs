@@ -113,8 +113,24 @@ async function smoke(win) {
   // Hidden actions in order: --smoke-type Label=value, --smoke-click Button.
   for (let i = 0; i < argv.length; i++) {
     const action = argv[i];
-    if (action !== "--smoke-type" && action !== "--smoke-click") continue;
+    if (action !== "--smoke-type" && action !== "--smoke-real-type" && action !== "--smoke-click") continue;
     const entry = argv[++i] || "";
+    if (action === "--smoke-real-type") {
+      // Click into the field like a person, then type the text for real.
+      const eq = entry.indexOf("=");
+      const at = await win.webContents.executeJavaScript(
+        "(() => { const el = [...document.querySelectorAll('main input, main textarea')].find((x) => x.getAttribute('aria-label') === " + JSON.stringify(entry.slice(0, eq)) + "); if (!el) return null; el.scrollIntoView({ block: 'nearest' }); const r = el.getBoundingClientRect(); return { x: Math.round(r.left + 12), y: Math.round(r.top + 12) }; })()",
+      );
+      if (!at) throw new Error("smoke: no input " + entry.slice(0, eq));
+      win.webContents.sendInputEvent({ type: "mouseDown", x: at.x, y: at.y, button: "left", clickCount: 1 });
+      win.webContents.sendInputEvent({ type: "mouseUp", x: at.x, y: at.y, button: "left", clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 100));
+      for (const ch of entry.slice(eq + 1)) {
+        await win.webContents.insertText(ch);
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      continue;
+    }
     if (action === "--smoke-type") {
       const eq = entry.indexOf("=");
       const found = await win.webContents.executeJavaScript(
@@ -123,10 +139,19 @@ async function smoke(win) {
       if (!found) throw new Error("smoke: no input " + entry.slice(0, eq));
       continue;
     }
-    const found = await win.webContents.executeJavaScript(
-      "(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim().startsWith(" + JSON.stringify(entry) + ") || x.getAttribute('aria-label') === " + JSON.stringify(entry) + "); if (b) b.click(); return Boolean(b); })()",
+    // A real mouse click at the button's middle, so something drawn over the
+    // button (which would eat a user's click) makes the smoke run fail.
+    const spot = await win.webContents.executeJavaScript(
+      "(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim().startsWith(" + JSON.stringify(entry) + ") || x.getAttribute('aria-label') === " + JSON.stringify(entry) + "); if (!b) return null; b.scrollIntoView({ block: 'nearest' }); const r = b.getBoundingClientRect(); const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2); const hit = document.elementFromPoint(x, y); window.__smokeTarget = b; return { x, y, ok: Boolean(hit && b.contains(hit)), hit: hit ? hit.tagName + '.' + hit.className : 'nothing' }; })()",
     );
-    if (!found) throw new Error("smoke: no button " + entry);
+    if (!spot) throw new Error("smoke: no button " + entry);
+    if (!spot.ok) throw new Error("smoke: button " + entry + " is covered by " + spot.hit);
+    // Move there, press, hold like a person does, then let go.
+    win.webContents.sendInputEvent({ type: "mouseMove", x: spot.x, y: spot.y });
+    await new Promise((r) => setTimeout(r, 80));
+    win.webContents.sendInputEvent({ type: "mouseDown", x: spot.x, y: spot.y, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, Number(flag("--hold")) || 150));
+    win.webContents.sendInputEvent({ type: "mouseUp", x: spot.x, y: spot.y, button: "left", clickCount: 1 });
     await settle();
   }
   // Frames load on their own; give them a moment before the capture.
