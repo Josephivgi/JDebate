@@ -109,7 +109,9 @@ function setup(db) {
   // working: every new column has a default.
   const add = {
     // old_files / old_notes: the current version a model battle redesigns.
-    battles: ["kind TEXT NOT NULL DEFAULT 'page'", "video_seconds INTEGER NOT NULL DEFAULT 30", "video_size TEXT NOT NULL DEFAULT '1280x720'", "old_files TEXT NOT NULL DEFAULT '[]'", "old_notes TEXT NOT NULL DEFAULT ''"],
+    battles: ["kind TEXT NOT NULL DEFAULT 'page'", "video_seconds INTEGER NOT NULL DEFAULT 30", "video_size TEXT NOT NULL DEFAULT '1280x720'", "old_files TEXT NOT NULL DEFAULT '[]'", "old_notes TEXT NOT NULL DEFAULT ''",
+      // no_winner: the user judged the battle and no entry won; the reason is shown to agents.
+      "no_winner INTEGER NOT NULL DEFAULT 0", "no_winner_reason TEXT NOT NULL DEFAULT ''"],
     // format: html (html, css, js), site (files, index.html first) or video (one video file).
     // review: '' (waiting), approved or denied, with the user's note.
     entries: ["format TEXT NOT NULL DEFAULT 'html'", "extra TEXT NOT NULL DEFAULT ''", "files TEXT NOT NULL DEFAULT '[]'", "review TEXT NOT NULL DEFAULT ''", "review_note TEXT NOT NULL DEFAULT ''", "reviewed_at INTEGER"],
@@ -301,7 +303,24 @@ function setWinner(home, battleId, entryId) {
       const e = db.prepare("SELECT * FROM entries WHERE id = ? AND battle_id = ? AND removed = 0 AND replaced_by IS NULL").get(String(entryId), b.id);
       if (!e) throw new Error("That entry is not in this battle any more.");
     }
-    db.prepare("UPDATE battles SET winner_id = ? WHERE id = ?").run(entryId ? String(entryId) : null, b.id);
+    // Picking a winner undoes "No winner"; clearing the winner leaves it alone.
+    if (entryId) db.prepare("UPDATE battles SET winner_id = ?, no_winner = 0, no_winner_reason = '' WHERE id = ?").run(String(entryId), b.id);
+    else db.prepare("UPDATE battles SET winner_id = NULL WHERE id = ?").run(b.id);
+    return battleRow(db, findBattle(db, b.id));
+  });
+}
+
+// Mark a battle as having no winner, with a reason agents read in battle_read
+// and battle_results. reason null clears it.
+function setNoWinner(home, battleId, reason) {
+  const clear = reason === null || reason === undefined;
+  const why = clear ? "" : String(reason).trim().slice(0, MAX_TASK);
+  if (!clear && !why) throw new Error("Say why no entry won. Agents see the reason.");
+  return tx(home, (db) => {
+    const b = findBattle(db, battleId);
+    if (!b) throw new Error("That battle is gone.");
+    if (clear) db.prepare("UPDATE battles SET no_winner = 0, no_winner_reason = '' WHERE id = ?").run(b.id);
+    else db.prepare("UPDATE battles SET winner_id = NULL, no_winner = 1, no_winner_reason = ? WHERE id = ?").run(why, b.id);
     return battleRow(db, findBattle(db, b.id));
   });
 }
@@ -593,6 +612,6 @@ const putBlob = (home, buf) => files.putBlob(dataHome(home), buf);
 
 module.exports = {
   KINDS, REVIEWS, VIDEO_SIZES, keepOpen, closeAll, entryFile, setOld, oldFolder, oldFile, review, blobFile, putBlob,
-  dataHome, stamp, openBattle, listBattles, getBattle, closeBattle, reopenBattle, editBattle, removeBattle, setWinner,
+  dataHome, stamp, openBattle, listBattles, getBattle, closeBattle, reopenBattle, editBattle, removeBattle, setWinner, setNoWinner,
   entries, activity, getSetting, setSetting, getEntry, removeEntry, prepare, submit, results, MAX_CODE, DRAFT_MINUTES,
 };

@@ -48,6 +48,7 @@ function createBackend(opts) {
   handle("battle-reopen", (bid) => store.reopenBattle(HOME, id(bid)));
   handle("battle-remove", (bid) => store.removeBattle(HOME, id(bid)));
   handle("winner", (bid, eid) => store.setWinner(HOME, id(bid), eid ? id(eid) : null));
+  handle("no-winner", (bid, reason) => store.setNoWinner(HOME, id(bid), typeof reason === "string" ? reason : null));
   handle("entry", (eid) => store.getEntry(HOME, id(eid)));
   // 3D model battles: approve or deny an entry, and set the current version.
   handle("review", (eid, status, note) => store.review(HOME, id(eid), status || "", note || ""));

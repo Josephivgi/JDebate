@@ -212,7 +212,7 @@ const clip = (t) => (t.length > 60000 ? t.slice(0, 60000) + "\n… (cut at 60000
 
 function battleLine(b) {
   const kind = b.kind && b.kind !== "page" ? KIND_NAME[b.kind].toLowerCase() + ", " : "";
-  return "- Battle " + b.num + " (ID JD-" + b.num + "): " + b.title + " (" + kind + b.status + ", " + b.entries + (b.entries === 1 ? " entry" : " entries") + ")";
+  return "- Battle " + b.num + " (ID JD-" + b.num + "): " + b.title + " (" + kind + b.status + ", " + b.entries + (b.entries === 1 ? " entry" : " entries") + (b.no_winner ? ", no winner" : "") + ")";
 }
 
 function matchLine(m) {
@@ -268,6 +268,7 @@ function call(name, a) {
     return [
       "# Battle " + b.num + " (ID JD-" + b.num + "): " + b.title,
       "Status: " + b.status + (b.status === "open" ? ", taking entries" : ", no more entries"),
+      ...(b.no_winner ? ["Result: no winner. The user judged every entry and none won. Reason: " + b.no_winner_reason] : []),
       "",
       "## Task",
       b.task,
@@ -310,7 +311,7 @@ function call(name, a) {
   }
   if (name === "battle_results") {
     const { battle: b, entries } = readBattle(a.battle);
-    const head = "# Battle " + b.num + ": " + b.title + " (" + b.status + ")\n" + (b.winner_id ? "Winner: entry " + (entries.find((e) => e.id === b.winner_id) || {}).num : "No winner picked yet.");
+    const head = "# Battle " + b.num + ": " + b.title + " (" + b.status + ")\n" + (b.winner_id ? "Winner: entry " + (entries.find((e) => e.id === b.winner_id) || {}).num : b.no_winner ? "No winner. The user judged every entry and none won. Reason: " + b.no_winner_reason : "No winner picked yet.");
     if (!entries.length) return head + "\n\nNo entries.";
     return (
       head + "\n\n" +

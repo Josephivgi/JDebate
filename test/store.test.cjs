@@ -186,3 +186,23 @@ test("the theme setting is stored and checked", () => {
   assert.throws(() => store.setSetting(home, "theme", "pink"), /theme must be one of/);
   assert.throws(() => store.getSetting(home, "colour"), /Unknown setting/);
 });
+
+test("no winner: needs a reason, clears the winner, and a picked winner clears it", () => {
+  const home = scratch();
+  const b = store.openBattle(home, { title: "Clock", task: "Build a clock" });
+  const a = send(home, 1, CLOCK, "claude-code");
+  const eid = a.submitted.entry.id;
+  assert.throws(() => store.setNoWinner(home, b.id, "  "), /why/);
+  store.setWinner(home, b.id, eid);
+  let r = store.setNoWinner(home, b.id, "Neither entry keeps time.");
+  assert.equal(r.winner_id, null);
+  assert.equal(r.no_winner, 1);
+  assert.equal(r.no_winner_reason, "Neither entry keeps time.");
+  assert.equal(store.results(home, 1).battle.no_winner_reason, "Neither entry keeps time.");
+  r = store.setWinner(home, b.id, eid);
+  assert.equal(r.no_winner, 0);
+  assert.equal(r.no_winner_reason, "");
+  store.setNoWinner(home, b.id, "Again.");
+  r = store.setNoWinner(home, b.id, null);
+  assert.equal(r.no_winner, 0);
+});

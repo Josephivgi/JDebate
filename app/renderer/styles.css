@@ -228,6 +228,8 @@ h4 + .ti::before { top: 20px; }
 .prompt { grid-column: 1 / -1; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: var(--well); color: var(--muted); line-height: 1.5; white-space: pre-wrap; user-select: text; }
 .winner-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-color: var(--accent-line); background: var(--accent-soft); }
 .winner-bar > svg { color: var(--accent); }
+.winner-bar.no-winner { border-color: var(--line-strong); background: var(--surface); }
+.winner-bar.no-winner > svg { color: var(--muted); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cardw, 300px), 1fr)); gap: 16px; }
 .cards-empty { grid-column: 1 / -1; }
 .ecard { position: relative; display: flex; flex-direction: column; overflow: hidden; transition: transform 0.14s, box-shadow 0.14s, border-color 0.14s; }

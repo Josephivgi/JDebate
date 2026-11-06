@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("jdebate", {
   reopenBattle: (id) => call("battle-reopen", id),
   removeBattle: (id) => call("battle-remove", id),
   setWinner: (battleId, entryId) => call("winner", battleId, entryId),
+  setNoWinner: (battleId, reason) => call("no-winner", battleId, reason),
   entry: (id) => call("entry", id),
   review: (id, status, note) => call("review", id, status, note),
   setOldNotes: (battleId, notes) => call("battle-old-notes", battleId, notes),

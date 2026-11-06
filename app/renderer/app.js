@@ -160,6 +160,7 @@ function go(p) {
   reviewNote = null;
   bigImage = "";
   oldNotesEdit = null;
+  noWinnerEdit = null;
   mounted = null;
   render();
   $main.scrollTop = 0;
@@ -386,7 +387,7 @@ function battlesPage() {
       h("span", { class: "bnum", text: String(b.num) }),
       h("button", { class: "bmain", type: "button", "aria-label": "Open battle " + b.num + ": " + b.title },
         h("span", { class: "btitle", text: b.title }),
-        h("span", { class: "bdesc", text: b.winner ? "Winner: entry " + b.winner.num + ", " + b.winner.title + ", by " + b.winner.agent : b.task.replace(/\s+/g, " ").slice(0, 200) })),
+        h("span", { class: "bdesc", text: b.winner ? "Winner: entry " + b.winner.num + ", " + b.winner.title + ", by " + b.winner.agent : b.no_winner ? "No winner: " + b.no_winner_reason.replace(/\s+/g, " ").slice(0, 200) : b.task.replace(/\s+/g, " ").slice(0, 200) })),
       h("span", { class: "bmeta" },
         b.kind && b.kind !== "page" ? h("span", { text: kindOf(b.kind).label }) : null,
         b.agents && b.agents.length ? h("span", { class: "thumbs", title: b.agents.join(", ") }, b.agents.slice(0, 4).map((a) => h("i", { text: initials(a) }))) : null,
@@ -480,6 +481,9 @@ function battleHead(b) {
     open
       ? h("button", { class: "btn quiet", disabled: busy, onclick: () => act(() => api.closeBattle(b.id), "Battle closed. Agents can now read every entry's code with battle_results.", () => api.reopenBattle(b.id)) }, icon(I.lock, 14), "Close battle")
       : null,
+    !b.winner_id && !b.no_winner && b.entries && noWinnerEdit === null
+      ? h("button", { class: "btn quiet", disabled: busy, title: "Mark that no entry won, with a reason agents can read", onclick: () => { noWinnerEdit = ""; render(); focusLater("no-winner-reason"); } }, icon(I.cross, 14), "No winner")
+      : null,
     h("button", { class: "btn quiet", disabled: busy, onclick: () => { editing = { title: b.title, task: b.task, videoSeconds: b.video_seconds, videoSize: b.video_size }; render(); focusLater("edit-title"); } }, "Edit"),
     h("button", { class: "btn quiet danger", disabled: busy, onclick: () => { confirm = { kind: "battle", id: b.id }; render(); focusLater("confirm-cancel"); } }, "Delete"),
     open
@@ -516,6 +520,37 @@ function winnerBanner(b) {
     icon(I.star, 16, true),
     h("span", { class: "grow" }, h("b", { text: b.winner.agent }), " won with entry " + b.winner.num + ", " + b.winner.title),
     e ? h("button", { class: "btn small", onclick: () => go("entry:" + e.id) }, "View entry") : null,
+  );
+}
+
+let noWinnerEdit = null; // reason text while marking or editing "No winner"
+
+// "No winner": a form for the reason, or the result with the reason agents see.
+function noWinnerPanel(b) {
+  if (noWinnerEdit !== null) {
+    const cancel = () => { noWinnerEdit = null; render(); };
+    return h("form", { class: "panel panel-pad stack", onsubmit: (ev) => {
+      ev.preventDefault();
+      const prev = b.no_winner ? b.no_winner_reason : null;
+      const prevWinner = b.winner_id;
+      act(async () => { await api.setNoWinner(b.id, noWinnerEdit); noWinnerEdit = null; }, "Marked as no winner. Agents see your reason in battle_read.",
+        () => (prevWinner ? api.setWinner(b.id, prevWinner) : api.setNoWinner(b.id, prev)));
+    } },
+      h("label", { class: "field" },
+        h("span", { class: "field-label", text: "Why did no entry win?" }),
+        h("textarea", { "aria-label": "No winner reason", "data-focus-key": "no-winner-reason", rows: "3", placeholder: "For example: none of them fixed the layout on small screens.", onkeydown: (ev) => { if (ev.key === "Escape") cancel(); }, oninput: (ev) => { noWinnerEdit = ev.target.value; render(); } }, noWinnerEdit)),
+      h("p", { class: "hint", text: "Agents read this in battle_read and battle_results." + (b.winner_id ? " This clears the current winner." : "") }),
+      h("div", { class: "row-actions" },
+        h("button", { class: "btn primary", type: "submit", disabled: busy || !noWinnerEdit.trim() }, "Mark no winner"),
+        h("button", { class: "btn", type: "button", onclick: cancel }, "Cancel")),
+    );
+  }
+  if (!b.no_winner) return null;
+  return h("section", { class: "panel winner-bar no-winner" },
+    icon(I.cross, 16),
+    h("span", { class: "grow" }, h("b", { text: "No winner. " }), b.no_winner_reason),
+    h("button", { class: "btn small quiet", disabled: busy, onclick: () => { noWinnerEdit = b.no_winner_reason; render(); focusLater("no-winner-reason"); } }, "Edit reason"),
+    h("button", { class: "btn small quiet", disabled: busy, onclick: () => { const why = b.no_winner_reason; act(() => api.setNoWinner(b.id, null), "No winner cleared.", () => api.setNoWinner(b.id, why)); } }, "Clear"),
   );
 }
 
@@ -824,7 +859,8 @@ function renderBattle() {
   if (!(editing && p.task.querySelector("form"))) p.task.replaceChildren(taskPanel(b));
   if (!(oldNotesEdit !== null && p.old.querySelector("textarea"))) p.old.replaceChildren(...[oldPanel(b)].filter(Boolean));
   p.big.replaceChildren(...[bigImageView()].filter(Boolean));
-  p.winner.replaceChildren(...[b.kind === "model" ? null : winnerBanner(b)].filter(Boolean));
+  if (!(noWinnerEdit !== null && p.winner.querySelector("textarea"))) p.winner.replaceChildren(...[noWinnerPanel(b), b.kind === "model" ? null : winnerBanner(b)].filter(Boolean));
+  else { const sb = p.winner.querySelector("button[type=submit]"); if (sb) sb.disabled = busy || !noWinnerEdit.trim(); }
   const n = battleData.entries.length;
   p.entriesHead.replaceChildren(
     h("h2", { text: "Entries" }),
