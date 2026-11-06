@@ -103,7 +103,10 @@ function setup(db) {
       "CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY KEY CHECK (id = 1), battle INTEGER NOT NULL);" +
       "INSERT OR IGNORE INTO counter (id, battle) VALUES (1, 0);" +
       // App settings, such as the theme. Agents never read these.
-      "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+      "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);" +
+      // Work rounds: the battles the user picked to review. At most one draft
+      // (the work in progress); sending it freezes the results for agents.
+      "CREATE TABLE IF NOT EXISTS work_rounds (id TEXT PRIMARY KEY, num INTEGER, status TEXT NOT NULL, battle_ids TEXT NOT NULL, results TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, sent_at INTEGER);",
   );
   // Columns added after the first release. Old copies of the server keep
   // working: every new column has a default.
@@ -111,7 +114,9 @@ function setup(db) {
     // old_files / old_notes: the current version a model battle redesigns.
     battles: ["kind TEXT NOT NULL DEFAULT 'page'", "video_seconds INTEGER NOT NULL DEFAULT 30", "video_size TEXT NOT NULL DEFAULT '1280x720'", "old_files TEXT NOT NULL DEFAULT '[]'", "old_notes TEXT NOT NULL DEFAULT ''",
       // no_winner: the user judged the battle and no entry won; the reason is shown to agents.
-      "no_winner INTEGER NOT NULL DEFAULT 0", "no_winner_reason TEXT NOT NULL DEFAULT ''"],
+      "no_winner INTEGER NOT NULL DEFAULT 0", "no_winner_reason TEXT NOT NULL DEFAULT ''",
+      // feedback: the user's notes for agents, read in battle_read and work rounds.
+      "feedback TEXT NOT NULL DEFAULT ''"],
     // format: html (html, css, js), site (files, index.html first) or video (one video file).
     // review: '' (waiting), approved or denied, with the user's note.
     entries: ["format TEXT NOT NULL DEFAULT 'html'", "extra TEXT NOT NULL DEFAULT ''", "files TEXT NOT NULL DEFAULT '[]'", "review TEXT NOT NULL DEFAULT ''", "review_note TEXT NOT NULL DEFAULT ''", "reviewed_at INTEGER"],
@@ -323,6 +328,82 @@ function setNoWinner(home, battleId, reason) {
     else db.prepare("UPDATE battles SET winner_id = NULL, no_winner = 1, no_winner_reason = ? WHERE id = ?").run(why, b.id);
     return battleRow(db, findBattle(db, b.id));
   });
+}
+
+// Notes for agents on a battle: what to change in a redesign.
+function setFeedback(home, battleId, notes) {
+  const t = text(notes, "Notes", MAX_TASK, { optional: true });
+  return tx(home, (db) => {
+    const b = findBattle(db, battleId);
+    if (!b) throw new Error("That battle is gone.");
+    db.prepare("UPDATE battles SET feedback = ? WHERE id = ?").run(t, b.id);
+    return battleRow(db, findBattle(db, b.id));
+  });
+}
+
+// ---- Work rounds ----
+
+function roundRow(r) {
+  return r ? { ...r, battle_ids: JSON.parse(r.battle_ids), results: JSON.parse(r.results) } : null;
+}
+
+// The work in progress, or null.
+function workDraft(home) {
+  return withDb(home, (db) => roundRow(db.prepare("SELECT * FROM work_rounds WHERE status = 'draft'").get()));
+}
+
+// Start working on these battles (ids, in this order). Replaces any draft.
+function startWork(home, battleIds) {
+  const ids = [...new Set((Array.isArray(battleIds) ? battleIds : []).map(String))];
+  if (!ids.length) throw new Error("Pick at least one battle to work on.");
+  return tx(home, (db) => {
+    for (const id of ids) if (!findBattle(db, id)) throw new Error("A battle you picked is gone.");
+    db.prepare("DELETE FROM work_rounds WHERE status = 'draft'").run();
+    const id = crypto.randomUUID();
+    db.prepare("INSERT INTO work_rounds (id, status, battle_ids, created_at) VALUES (?, 'draft', ?, ?)").run(id, JSON.stringify(ids), Date.now());
+    return roundRow(db.prepare("SELECT * FROM work_rounds WHERE id = ?").get(id));
+  });
+}
+
+function endWork(home) {
+  return tx(home, (db) => db.prepare("DELETE FROM work_rounds WHERE status = 'draft'").run().changes > 0);
+}
+
+// Freeze the draft's results (each battle's winner or no winner, the notes and
+// the entry reviews) and number the round, so agents can read it.
+function sendWork(home) {
+  return tx(home, (db) => {
+    const d = db.prepare("SELECT * FROM work_rounds WHERE status = 'draft'").get();
+    if (!d) throw new Error("There is no work to send.");
+    const results = [];
+    for (const id of JSON.parse(d.battle_ids)) {
+      const b = findBattle(db, id);
+      if (!b) continue;
+      const w = b.winner_id ? db.prepare("SELECT num, title, agent FROM entries WHERE id = ?").get(b.winner_id) : null;
+      // A battle you did not decide or write notes on has nothing to send.
+      if (!w && !b.no_winner && !b.feedback) continue;
+      const reviews = db.prepare("SELECT num, title, agent, review, review_note FROM entries WHERE battle_id = ? AND removed = 0 AND replaced_by IS NULL AND review != '' ORDER BY num").all(b.id)
+        .map((e) => ({ num: e.num, title: e.title, agent: e.agent, review: e.review, note: e.review_note }));
+      results.push({
+        battle_id: b.id, num: b.num, title: b.title, kind: b.kind, status: b.status,
+        result: w ? "winner" : b.no_winner ? "no_winner" : "undecided",
+        winner: w ? { num: w.num, title: w.title, agent: w.agent } : null,
+        reason: b.no_winner ? b.no_winner_reason : "",
+        notes: b.feedback, reviews,
+      });
+    }
+    if (!results.length) throw new Error("Pick a winner, mark No winner or add notes on at least one battle first.");
+    const num = db.prepare("SELECT COALESCE(MAX(num), 0) + 1 AS n FROM work_rounds").get().n;
+    db.prepare("UPDATE work_rounds SET status = 'sent', num = ?, results = ?, sent_at = ? WHERE id = ?").run(num, JSON.stringify(results), Date.now(), d.id);
+    return roundRow(db.prepare("SELECT * FROM work_rounds WHERE id = ?").get(d.id));
+  });
+}
+
+// A sent round by number, or the newest one.
+function workRound(home, num) {
+  return withDb(home, (db) => roundRow(num
+    ? db.prepare("SELECT * FROM work_rounds WHERE status = 'sent' AND num = ?").get(Number(num))
+    : db.prepare("SELECT * FROM work_rounds WHERE status = 'sent' ORDER BY num DESC LIMIT 1").get()));
 }
 
 // ---- Entries ----
@@ -612,6 +693,7 @@ const putBlob = (home, buf) => files.putBlob(dataHome(home), buf);
 
 module.exports = {
   KINDS, REVIEWS, VIDEO_SIZES, keepOpen, closeAll, entryFile, setOld, oldFolder, oldFile, review, blobFile, putBlob,
-  dataHome, stamp, openBattle, listBattles, getBattle, closeBattle, reopenBattle, editBattle, removeBattle, setWinner, setNoWinner,
+  dataHome, stamp, openBattle, listBattles, getBattle, closeBattle, reopenBattle, editBattle, removeBattle, setWinner, setNoWinner, setFeedback,
+  workDraft, startWork, endWork, sendWork, workRound,
   entries, activity, getSetting, setSetting, getEntry, removeEntry, prepare, submit, results, MAX_CODE, DRAFT_MINUTES,
 };

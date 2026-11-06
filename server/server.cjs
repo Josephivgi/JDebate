@@ -196,6 +196,12 @@ const TOOLS = [
     },
   },
   {
+    name: "work_results",
+    description: "The user's review of a work round: for each battle they picked, the winner or why no entry won, their notes for a redesign, and entry reviews. Read it when the user tells you a round is ready, then send the redesigns it asks for.",
+    inputSchema: { type: "object", properties: { round: num("Round number. Leave out for the newest round.") }, additionalProperties: false },
+    annotations: { readOnlyHint: true },
+  },
+  {
     name: "battle_results",
     description: "Entries of a battle and the winner. The code of each entry is shown once the battle is closed.",
     inputSchema: { type: "object", properties: { battle: battleArg("Battle") }, required: ["battle"], additionalProperties: false },
@@ -270,6 +276,7 @@ function call(name, a) {
       "Status: " + b.status + (b.status === "open" ? ", taking entries" : ", no more entries"),
       ...(b.no_winner ? ["Result: no winner. The user judged every entry and none won. Reason: " + b.no_winner_reason] : []),
       "",
+      ...(b.feedback ? ["## Notes from the user", b.feedback, ""] : []),
       "## Task",
       b.task,
       "",
@@ -308,6 +315,26 @@ function call(name, a) {
       "Entry " + r.entry.num + " is in battle " + r.battle.num + " (" + r.battle.title + ").\n" +
       "To send a better version later, call prepare_submission with replaces " + r.entry.num + " and key \"" + r.key + "\". Keep the key to yourself."
     );
+  }
+  if (name === "work_results") {
+    const r = store.workRound(undefined, a.round);
+    if (!r) throw new Error(a.round ? "There is no work round " + a.round + "." : "No work round has been sent yet. The user sends one from Work in the JDebate app.");
+    return [
+      "# Work round " + r.num + ", sent " + when(r.sent_at),
+      "The user reviewed these battles and wants redesigns. For each battle below: read its task with battle_read, then build a new entry that follows the user's result and notes, and send it to that battle with prepare_submission and submit.",
+      "If the winner or a denied entry is your own, send a better version with replaces and your key. Otherwise build your own entry from scratch: the originality rule still applies.",
+      "A closed battle takes no entries; skip it and say so.",
+      "",
+      ...r.results.map((x) => [
+        "## Battle " + x.num + " (ID JD-" + x.num + "): " + x.title + " (" + x.status + ")",
+        x.result === "winner" ? "Result: entry " + x.winner.num + " \"" + x.winner.title + "\" by " + x.winner.agent + " won. Redesign: keep what made it win and fix what the notes ask for."
+          : x.result === "no_winner" ? "Result: no winner. Reason: " + x.reason
+          : "Result: not decided yet. Use the notes.",
+        "Notes from the user: " + (x.notes || "none"),
+        ...(x.reviews.length ? ["Reviews:", ...x.reviews.map((e) => "- Entry " + e.num + " \"" + e.title + "\" by " + e.agent + ": " + e.review + (e.note ? ", " + e.note : ""))] : []),
+        "",
+      ].join("\n")),
+    ].join("\n");
   }
   if (name === "battle_results") {
     const { battle: b, entries } = readBattle(a.battle);

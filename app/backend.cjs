@@ -49,6 +49,11 @@ function createBackend(opts) {
   handle("battle-remove", (bid) => store.removeBattle(HOME, id(bid)));
   handle("winner", (bid, eid) => store.setWinner(HOME, id(bid), eid ? id(eid) : null));
   handle("no-winner", (bid, reason) => store.setNoWinner(HOME, id(bid), typeof reason === "string" ? reason : null));
+  handle("feedback", (bid, notes) => store.setFeedback(HOME, id(bid), typeof notes === "string" ? notes : ""));
+  handle("work", () => store.workDraft(HOME));
+  handle("work-start", (ids) => store.startWork(HOME, Array.isArray(ids) ? ids.map(id) : []));
+  handle("work-end", () => store.endWork(HOME));
+  handle("work-send", () => store.sendWork(HOME));
   handle("entry", (eid) => store.getEntry(HOME, id(eid)));
   // 3D model battles: approve or deny an entry, and set the current version.
   handle("review", (eid, status, note) => store.review(HOME, id(eid), status || "", note || ""));
@@ -115,7 +120,9 @@ function createBackend(opts) {
   handle("install", async (ids) => Object.assign(await install.install(Array.isArray(ids) ? ids.map(String) : [], HOME), { state: install.status(HOME) }));
   handle("uninstall", (ids) => Object.assign(install.uninstall(Array.isArray(ids) ? ids.map(String) : [], HOME), { state: install.status(HOME) }));
   handle("copy", (text) => {
-    clipboard.writeText(String(text || ""));
+    // Smoke runs leave the user's clipboard alone.
+    if (SMOKE) process.stdout.write("smoke copy: " + JSON.stringify(String(text || "")) + "\n");
+    else clipboard.writeText(String(text || ""));
     return true;
   });
   handle("reveal", (file) => {

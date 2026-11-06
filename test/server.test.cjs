@@ -57,7 +57,7 @@ test("an agent reads a battle, is told the rule, and submits", async () => {
     assert.match(init.result.instructions, /battle ID like JD-18/);
     assert.match(init.result.instructions, /do not submit it/);
     const tools = (await s.rpc("tools/list", {})).result.tools.map((t) => t.name);
-    assert.deepEqual(tools, ["battles", "battle_read", "prepare_submission", "submit", "blender_python", "blender_scene", "blender_new", "blender_open", "blender_render", "blender_export", "battle_results"]);
+    assert.deepEqual(tools, ["battles", "battle_read", "prepare_submission", "submit", "blender_python", "blender_scene", "blender_new", "blender_open", "blender_render", "blender_export", "work_results", "battle_results"]);
     assert.match((await s.tool("battles", {})).text, /Battle 1 \(ID JD-1\): Clock \(open, 0 entries\)/);
     const read = await s.tool("battle_read", { battle: "JD-1" });
     assert.match(read.text, /^# Battle 1 \(ID JD-1\): Clock/);

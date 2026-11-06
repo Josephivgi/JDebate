@@ -206,3 +206,43 @@ test("no winner: needs a reason, clears the winner, and a picked winner clears i
   r = store.setNoWinner(home, b.id, null);
   assert.equal(r.no_winner, 0);
 });
+
+test("work rounds: start, send frozen results with notes, read the newest", () => {
+  const home = scratch();
+  const b1 = store.openBattle(home, { title: "Clock", task: "Build a clock" });
+  const b2 = store.openBattle(home, { title: "Flip", task: "Build a flip clock" });
+  const a = send(home, 1, CLOCK, "claude-code");
+  send(home, 2, FLIP, "codex");
+  assert.equal(store.workDraft(home), null);
+  assert.throws(() => store.startWork(home, []), /Pick at least one/);
+  const d = store.startWork(home, [b1.id, b2.id]);
+  assert.deepEqual(d.battle_ids, [b1.id, b2.id]);
+  store.setWinner(home, b1.id, a.submitted.entry.id);
+  store.setNoWinner(home, b2.id, "Digits do not flip.");
+  store.setFeedback(home, b1.id, "Add a seconds hand.");
+  const r = store.sendWork(home);
+  assert.equal(r.num, 1);
+  assert.equal(r.status, "sent");
+  assert.equal(store.workDraft(home), null);
+  assert.equal(r.results[0].result, "winner");
+  assert.equal(r.results[0].winner.num, 1);
+  assert.equal(r.results[0].notes, "Add a seconds hand.");
+  assert.equal(r.results[1].result, "no_winner");
+  assert.equal(r.results[1].reason, "Digits do not flip.");
+  // Later changes do not touch a sent round.
+  store.setFeedback(home, b1.id, "Changed.");
+  assert.equal(store.workRound(home).results[0].notes, "Add a seconds hand.");
+  // Battles with no result and no notes are left out; nothing at all is refused.
+  const b3 = store.openBattle(home, { title: "Empty", task: "Nothing decided" });
+  store.startWork(home, [b3.id]);
+  assert.throws(() => store.sendWork(home), /at least one battle/);
+  store.startWork(home, [b2.id, b3.id]);
+  const r2 = store.sendWork(home);
+  assert.equal(r2.num, 2);
+  assert.deepEqual(r2.results.map((x) => x.num), [2]);
+  assert.equal(store.workRound(home).num, 2);
+  assert.equal(store.workRound(home, 1).num, 1);
+  store.startWork(home, [b1.id]);
+  assert.equal(store.endWork(home), true);
+  assert.equal(store.workDraft(home), null);
+});

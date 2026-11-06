@@ -161,6 +161,7 @@ function go(p) {
   bigImage = "";
   oldNotesEdit = null;
   noWinnerEdit = null;
+  feedbackEdit = null;
   mounted = null;
   render();
   $main.scrollTop = 0;
@@ -175,6 +176,7 @@ function renderSide() {
   const found = presentAgents().length || (inst ? inst.agents.length : 0);
   const items = [
     { id: "battles", label: "Battles", d: I.battles, count: String(battles.length) },
+    { id: "work", label: "Work", d: I.check, count: work ? workList().filter(decided).length + " of " + workList().length : String(battles.filter(undecided).length) },
     { id: "agents", label: "Agents", d: I.agents, count: inst ? readyAgents().length + " of " + found : null },
   ];
   const onPage = (id) => page === id || (id === "battles" && /^(battle|entry):/.test(page) && !openBattles().some((b) => isBattlePage(b.id)));
@@ -554,6 +556,119 @@ function noWinnerPanel(b) {
   );
 }
 
+// ---- Work ----
+//
+// Pick the battles to review (those with entries and no winner or No winner
+// yet), go through them one by one, then send the results to agents as a work
+// round they read with work_results. The draft round lives in the database.
+let work = null; // the draft round {battle_ids}, or null
+let workPick = new Set(); // battle ids ticked on the Work page
+let workSent = null; // the round just sent, for its prompt
+let feedbackEdit = null; // {bid, text} while notes for agents are typed
+
+const undecided = (b) => !b.winner && !b.no_winner && b.entries > 0;
+const workList = () => (work ? work.battle_ids.map((id) => battles.find((b) => b.id === id)).filter(Boolean) : []);
+const decided = (b) => Boolean(b.winner || b.no_winner);
+const resultText = (b) => (b.winner ? "Winner: entry " + b.winner.num + ", " + b.winner.title : b.no_winner ? "No winner: " + b.no_winner_reason : "Not decided yet");
+const workPrompt = (r) => "Read JDebate work round " + r.num + " with the jdebate work_results tool, then send the redesigns it asks for. Build each entry yourself from scratch, or send a better version of your own entry with replaces and your key.";
+
+function sendWork() {
+  return act(async () => {
+    const r = await api.sendWork();
+    work = null;
+    workSent = r;
+    await api.copy(workPrompt(r));
+  }, () => "Round " + workSent.num + " sent. The agent prompt is copied: paste it into each agent that should do the redesigns.");
+}
+
+function workPage() {
+  if (!work) {
+    const list = battles.filter(undecided).sort((a, b) => a.num - b.num);
+    workPick = new Set([...workPick].filter((id) => list.some((b) => b.id === id)));
+    const n = workPick.size;
+    const tick = (b) => { workPick.has(b.id) ? workPick.delete(b.id) : workPick.add(b.id); render(); };
+    const rows = list.map((b) => {
+      const waiting = b.kind === "model" && b.reviews ? b.reviews.waiting : 0;
+      return h("label", { class: "brow work-row" },
+        h("input", { type: "checkbox", checked: workPick.has(b.id), "aria-label": "Work on battle " + b.num, onchange: () => tick(b) }),
+        h("span", { class: "bmain" },
+          h("span", { class: "btitle", text: b.num + ". " + b.title }),
+          h("span", { class: "bdesc", text: kindLine(b) + " · " + plural(b.entries, "entry", "entries") + (waiting ? " · " + waiting + " waiting for review" : "") + " · opened " + ago(b.created_at) })),
+        h("span", { class: "st" + (b.status === "open" ? " open" : ""), text: b.status === "open" ? "Open" : "Closed" }));
+    });
+    return h("div", { class: "page" },
+      head("Work", "Pick the battles you want to review. Battles with a winner or marked No winner are left out.", [
+        list.length ? h("button", { class: "btn quiet", onclick: () => { workPick = n === list.length ? new Set() : new Set(list.map((b) => b.id)); render(); } }, n === list.length ? "Clear" : "Select all") : null,
+        h("button", { class: "btn primary", disabled: busy || !n, onclick: () => act(async () => { work = await api.startWork(list.filter((b) => workPick.has(b.id)).map((b) => b.id)); workPick = new Set(); go("battle:" + work.battle_ids[0]); }, "") }, icon(I.check, 14), n ? "Start work (" + n + ")" : "Start work"),
+      ]),
+      flashView(),
+      workSent ? h("section", { class: "panel panel-pad" },
+        h("div", { class: "row-actions" },
+          h("p", { class: "grow", text: "Round " + workSent.num + " was sent with " + plural(workSent.results.length, "battle", "battles") + ". Agents read it with work_results." }),
+          h("button", { class: "btn small", onclick: () => act(() => api.copy(workPrompt(workSent)), "Agent prompt copied.") }, icon(I.copy, 14), "Copy agent prompt"))) : null,
+      list.length
+        ? h("section", { class: "panel" }, rows)
+        : h("div", { class: "panel empty" }, h("span", { class: "ico" }, icon(I.check, 20)), h("h3", { text: "Nothing to review" }), h("p", { text: "Every battle with entries has a winner or is marked No winner." })),
+    );
+  }
+  const list = workList();
+  const done = list.filter(decided).length;
+  const next = list.find((b) => !decided(b)) || list[0];
+  const rows = list.map((b, i) => h("div", { class: "brow", onclick: () => go("battle:" + b.id) },
+    h("span", { class: "bnum", text: String(i + 1) }),
+    h("button", { class: "bmain", type: "button", "aria-label": "Open battle " + b.num + ": " + b.title },
+      h("span", { class: "btitle", text: b.title }),
+      h("span", { class: "bdesc", text: resultText(b) + " · " + (b.feedback ? "Notes: " + b.feedback.replace(/\s+/g, " ").slice(0, 140) : "No notes") })),
+    h("span", { class: "bmeta" }, h("span", { text: decided(b) ? "Done" : "To do" }), h("span", { class: "go" }, icon(I.right, 14)))));
+  return h("div", { class: "page" },
+    head("Work", done + " of " + plural(list.length, "battle", "battles") + " decided. Your results and notes go to agents when you send them; battles you skip are left out.", [
+      h("button", { class: "btn quiet", disabled: busy, onclick: () => { const ids = work.battle_ids; act(async () => { await api.endWork(); work = null; }, "Work ended. Nothing was sent.", async () => { work = await api.startWork(ids); }); } }, "End without sending"),
+      next ? h("button", { class: "btn", onclick: () => go("battle:" + next.id) }, done < list.length ? "Continue" : "Look again") : null,
+      h("button", { class: "btn primary", disabled: busy || !list.some((b) => decided(b) || b.feedback), title: "Save the results as a work round and copy a prompt for your agents", onclick: sendWork }, "Send results to agents"),
+    ]),
+    flashView(),
+    h("section", { class: "panel" }, rows),
+  );
+}
+
+// Shown on a battle page while it is part of the work: where you are, and
+// the way to the next battle.
+function workBar(b) {
+  const list = workList();
+  const i = list.findIndex((x) => x.id === b.id);
+  if (i < 0) return null;
+  const prev = list[i - 1];
+  const next = list[i + 1];
+  return h("section", { class: "panel work-bar" },
+    h("b", { text: "Work" }),
+    h("span", { class: "grow", text: "Battle " + (i + 1) + " of " + list.length + " · " + (decided(b) ? resultText(b) : "Pick a winner, mark No winner, or add notes") }),
+    h("button", { class: "btn small quiet", disabled: !prev, "aria-label": "Previous battle in work", onclick: () => go("battle:" + prev.id) }, icon(I.left, 14), "Previous"),
+    next
+      ? h("button", { class: "btn small" + (decided(b) ? " primary" : ""), "aria-label": "Next battle in work", onclick: () => go("battle:" + next.id) }, "Next", icon(I.right, 14))
+      : h("button", { class: "btn small" + (decided(b) ? " primary" : ""), onclick: () => go("work") }, "Finish"),
+    h("button", { class: "btn small quiet", onclick: () => go("work") }, "Work list"));
+}
+
+// Notes for agents: what a redesign should change. Agents read them in
+// battle_read and in work rounds.
+function feedbackPanel(b) {
+  if (feedbackEdit && feedbackEdit.bid === b.id) {
+    const cancel = () => { feedbackEdit = null; render(); };
+    return h("form", { class: "panel panel-pad stack", onsubmit: (ev) => { ev.preventDefault(); const prev = b.feedback; act(async () => { await api.setFeedback(b.id, feedbackEdit.text); feedbackEdit = null; }, "Notes saved. Agents see them in battle_read.", () => api.setFeedback(b.id, prev)); } },
+      h("label", { class: "field" },
+        h("span", { class: "field-label", text: "Notes for agents" }),
+        h("textarea", { "aria-label": "Notes for agents", "data-focus-key": "feedback", rows: "4", placeholder: "What should a redesign keep, and what should it change?", onkeydown: (ev) => { if (ev.key === "Escape") cancel(); }, oninput: (ev) => { feedbackEdit.text = ev.target.value; } }, feedbackEdit.text)),
+      h("div", { class: "row-actions" },
+        h("button", { class: "btn small primary", type: "submit", disabled: busy }, "Save notes"),
+        h("button", { class: "btn small", type: "button", onclick: cancel }, "Cancel")));
+  }
+  return h("section", { class: "panel panel-pad feedback" },
+    h("div", { class: "row-actions" },
+      h("span", { class: "label", text: "Notes for agents" }),
+      h("p", { class: "task-text grow" + (b.feedback ? "" : " note"), text: b.feedback || "None yet. Agents read these in battle_read and in work results." }),
+      h("button", { class: "btn small quiet", disabled: busy, onclick: () => { feedbackEdit = { bid: b.id, text: b.feedback || "" }; render(); focusLater("feedback"); } }, b.feedback ? "Edit notes" : "Add notes")));
+}
+
 function confirmView(b) {
   if (!confirm || confirm.kind !== "battle") return null;
   const back = () => { confirm = null; render(); };
@@ -848,14 +963,15 @@ function renderBattle() {
   }
   const b = battleData.battle;
   if (!mounted || mounted.bid !== bid || !$main.contains(mounted.root)) {
-    const parts = { head: h("div"), notes: h("div", { class: "stack" }), task: h("div"), old: h("div"), big: h("div"), winner: h("div"), entriesHead: h("div", { class: "section-head" }), grid: h("div", { class: "cards" }) };
-    const root = h("div", { class: "page" }, parts.head, parts.notes, parts.task, parts.old, parts.big, parts.winner, h("section", { class: "section" }, parts.entriesHead, parts.grid));
+    const parts = { head: h("div"), notes: h("div", { class: "stack" }), task: h("div"), old: h("div"), big: h("div"), winner: h("div"), feedback: h("div"), entriesHead: h("div", { class: "section-head" }), grid: h("div", { class: "cards" }) };
+    const root = h("div", { class: "page" }, parts.head, parts.notes, parts.task, parts.old, parts.big, parts.winner, parts.feedback, h("section", { class: "section" }, parts.entriesHead, parts.grid));
     $main.replaceChildren(root);
     mounted = { bid, root, parts, cards: new Map() };
   }
   const p = mounted.parts;
   p.head.replaceChildren(battleHead(b));
-  p.notes.replaceChildren(...[installStrip(), flashView(), confirmView(b)].filter(Boolean));
+  p.notes.replaceChildren(...[workBar(b), installStrip(), flashView(), confirmView(b)].filter(Boolean));
+  if (!(feedbackEdit && p.feedback.querySelector("textarea"))) p.feedback.replaceChildren(feedbackPanel(b));
   if (!(editing && p.task.querySelector("form"))) p.task.replaceChildren(taskPanel(b));
   if (!(oldNotesEdit !== null && p.old.querySelector("textarea"))) p.old.replaceChildren(...[oldPanel(b)].filter(Boolean));
   p.big.replaceChildren(...[bigImageView()].filter(Boolean));
@@ -1231,7 +1347,7 @@ async function refresh(force) {
     const s = await api.stamp();
     if (s !== stamp || force) {
       stamp = s;
-      [battles, feed] = await Promise.all([api.battles(), api.activity()]);
+      [battles, feed, work] = await Promise.all([api.battles(), api.activity(), api.work()]);
       noticeNew(feed.recent, false);
       if (page.startsWith("battle:")) battleData = (await api.battle(page.slice(7))) || false;
       if (page.startsWith("entry:")) {
@@ -1271,6 +1387,9 @@ function render() {
   if (page === "agents") {
     mounted = null;
     agentsPage();
+  } else if (page === "work") {
+    mounted = null;
+    $main.replaceChildren(workPage());
   } else if (page.startsWith("battle:")) renderBattle();
   else if (page.startsWith("entry:")) entryPage();
   else {
@@ -1312,7 +1431,7 @@ document.addEventListener("keydown", (e) => {
 
 (async function start() {
   try {
-    [battles, feed, inst, stamp, appUpd, theme] = await Promise.all([api.battles(), api.activity(), api.installState(), api.stamp(), api.appUpdate.state().catch(() => null), api.theme().catch(() => "system")]);
+    [battles, feed, inst, stamp, appUpd, theme, work] = await Promise.all([api.battles(), api.activity(), api.installState(), api.stamp(), api.appUpdate.state().catch(() => null), api.theme().catch(() => "system"), api.work()]);
     noticeNew(feed.recent, true);
     api.installCommand().then((c) => { mcpEntry = c; if (page === "agents") render(); }, () => {});
     if (page.startsWith("battle:") || page.startsWith("entry:")) await loadPage();
