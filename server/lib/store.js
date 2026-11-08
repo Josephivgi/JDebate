@@ -515,6 +515,9 @@ function iconSvg(v) {
   if (/<script[\s>]/i.test(t)) throw new Error("An icon cannot have <script>.");
   if (/<foreignObject[\s>]/i.test(t)) throw new Error("An icon cannot have <foreignObject>. Draw it with SVG shapes.");
   if (/\son[a-z]+\s*=/i.test(t)) throw new Error("An icon cannot have event handlers (onload, onclick and so on).");
+  // Texture makes icons look off and muddy when small.
+  if (/<feTurbulence[\s/>]/i.test(t)) throw new Error("Keep the icon simple: no noise or grain (feTurbulence). Use a few flat shapes and at most one soft gradient.");
+  if (/<pattern[\s>]/i.test(t)) throw new Error("Keep the icon simple: no pattern fills (halftone, stripes, grids, textures). Use a few flat shapes and at most one soft gradient.");
   if (/(?:xlink:)?href\s*=\s*["']\s*(?!#|data:image\/)/i.test(t) || /url\(\s*["']?\s*(?!#|data:image\/)/i.test(t) || /@import/i.test(t)) throw new Error("An icon cannot load anything from outside. Links may only point inside the SVG (#id) or be data:image URLs.");
   return t;
 }

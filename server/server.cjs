@@ -62,7 +62,11 @@ function kindText(b) {
       "## What to send",
       "Only the icon: one SVG with a square viewBox (0 0 512 512 is best). Pass it to prepare_submission as svg, either the SVG markup or the full path to your .svg file.",
       "Do not build a web page, a presentation or a size chart around it. JDebate shows every entry the same way itself: large, at 256, 128, 64, 48, 32, 24 and 16 px on dark and light backgrounds, and in a Windows taskbar, title bar and desktop shortcut.",
-      "The SVG is shown as an image: no scripts, no event handlers, no <foreignObject>, no web fonts (turn any lettering into paths), and nothing loaded from outside. Gradients, masks, clip paths and filters work, but keep it bold and readable at 16 and 32 px.",
+      "The SVG is shown as an image: no scripts, no event handlers, no <foreignObject>, no web fonts (turn any lettering into paths), and nothing loaded from outside.",
+      "",
+      "## Keep it simple",
+      "An app icon is not an illustration. Busy, textured icons look off and turn to mud small. Use a few big flat shapes, at most 4 or 5 colors, and at most one soft gradient or highlight. One bold idea, with the main shape filling about 80% of the tile. No texture: no halftone dots, grain, noise, hatching, scratches, stitch patterns, rivets everywhere or busy backgrounds. Think clean modern Windows 11 or macOS app icons. Whatever style you pick, make the clean version of it. Noise filters (feTurbulence) and pattern fills are refused.",
+      "",
       "To check it, render it to PNG at 512, 32 and 16 px with a headless tool and look at the PNGs. Never open visible windows on the desktop.",
       "One entry is one icon. To try another style, send it as a separate entry with its own title.",
     ].filter((x) => x !== null).join("\n");

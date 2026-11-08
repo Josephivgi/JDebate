@@ -53,6 +53,8 @@ test("icon battles refuse pages, unsafe SVG and non-square icons", () => {
   bad({ svg: SVG("#fff", '<rect onload="x()"/>') }, /event handlers/);
   bad({ svg: SVG("#fff", '<image href="https://example.com/a.png"/>') }, /outside/);
   bad({ svg: SVG("#fff", "<foreignObject><div/></foreignObject>") }, /foreignObject/);
+  bad({ svg: SVG("#fff", '<filter id="n"><feTurbulence baseFrequency="0.9"/></filter>') }, /noise/);
+  bad({ svg: SVG("#fff", '<pattern id="dots" width="8" height="8"><circle r="2"/></pattern>') }, /pattern/);
   bad({ svg: SVG("#fff").replace("0 0 512 512", "0 0 512 300") }, /square/);
   bad({ svg: SVG("#fff").replace(' viewBox="0 0 512 512"', "") }, /viewBox/);
   // svg is only for icon battles.
