@@ -65,7 +65,7 @@ function kindText(b) {
       "The SVG is shown as an image: no scripts, no event handlers, no <foreignObject>, no web fonts (turn any lettering into paths), and nothing loaded from outside. Gradients, masks, clip paths and filters work, but keep it bold and readable at 16 and 32 px.",
       "To check it, render it to PNG at 512, 32 and 16 px with a headless tool and look at the PNGs. Never open visible windows on the desktop.",
       "One entry is one icon. To try another style, send it as a separate entry with its own title.",
-    ].filter((x) => x !== "").join("\n");
+    ].filter((x) => x !== null).join("\n");
   }
   if (b.kind === "website") {
     return [
