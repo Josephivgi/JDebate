@@ -403,3 +403,7 @@ dialog h2 { font-size: 17px; }
 .cmp-col figure { margin: 0; display: flex; flex-direction: column; gap: 3px; }
 .cmp-col img { width: 100%; border-radius: 7px; border: 1px solid var(--line); background: #2b2e34; }
 @media (max-width: 900px) { .cmp-cols { grid-template-columns: minmax(0, 1fr); } }
+/* App icon entries: the icon large, then at 32 and 16 px. */
+.thumb.dark .frame-box.icon-thumb { display: flex; align-items: flex-end; justify-content: center; gap: 18px; padding: 14px; background: #16181d; }
+.icon-thumb img { display: block; flex: none; }
+.icon-thumb img:first-child { width: auto; height: 100%; max-height: 150px; aspect-ratio: 1; }

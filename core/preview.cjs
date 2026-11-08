@@ -143,3 +143,82 @@ renderer.domElement.addEventListener("pointerdown", () => { controls.autoRotate 
 
 module.exports.modelPage = modelPage;
 module.exports.modelCsp = modelCsp;
+
+// ---- App icon entries ----
+
+// An icon entry's page, made by JDebate so every entry is shown the same way:
+// large, at each Windows size on dark and light, 16 and 32 px blown up pixel
+// by pixel, and in a taskbar, title bar and desktop shortcut. The SVG is only
+// ever an <img>, so nothing in it runs.
+function iconPage(svg, name) {
+  const src = "data:image/svg+xml;base64," + Buffer.from(String(svg || ""), "utf8").toString("base64");
+  const label = String(name || "App").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const img = (px, cls) => '<img src="' + src + '" width="' + px + '" height="' + px + '" alt=""' + (cls ? ' class="' + cls + '"' : "") + ">";
+  const sizes = [256, 128, 64, 48, 32, 24, 16];
+  const row = (cls) => '<div class="row ' + cls + '">' + sizes.map((s) => '<figure>' + img(s) + "<figcaption>" + s + "</figcaption></figure>").join("") + "</div>";
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;background:#16181d;color:#c9ccd3;font:12px/1.4 "Segoe UI",system-ui,sans-serif}
+main{display:grid;gap:14px;padding:16px;max-width:1180px;margin:0 auto}
+.top{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:stretch}
+.hero{display:grid;place-items:center;padding:20px;border-radius:10px;background:#0f1115;border:1px solid #2a2e36}
+.hero img{width:min(384px,70vw);height:auto}
+.side{display:grid;gap:14px;align-content:start}
+.box{border-radius:10px;border:1px solid #2a2e36;overflow:hidden}
+.box h2{margin:0;padding:8px 12px;font-size:11px;font-weight:600;letter-spacing:.04em;color:#8b909a;background:#1c1f25;border-bottom:1px solid #2a2e36}
+.row{display:flex;align-items:flex-end;justify-content:space-around;gap:10px;padding:16px 12px 10px;flex-wrap:wrap}
+.row.dark{background:#0d1117}.row.light{background:#f3f4f6;color:#555}
+figure{margin:0;display:grid;justify-items:center;gap:6px}
+figcaption{font-size:10px;opacity:.7}
+.zoom{display:flex;gap:18px;padding:14px;justify-content:center;background:#0d1117;flex-wrap:wrap}
+.zoom canvas{width:160px;height:160px;image-rendering:pixelated;border:1px solid #2a2e36;border-radius:6px;background:#202020}
+.zoom canvas.l{background:#f3f4f6}
+.win{background:linear-gradient(135deg,#1d3557,#2b4c6f 55%,#3d5a80);padding:14px 14px 0;display:grid;gap:12px}
+.titlebar{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;background:#202020;color:#fff;border-radius:8px 8px 0 0;width:min(420px,100%)}
+.titlebar span{font-size:12px}
+.titlebar i{margin-left:auto;letter-spacing:14px;color:#aaa;font-style:normal}
+.desk{display:flex;gap:6px}
+.shortcut{width:76px;display:grid;justify-items:center;gap:4px;padding:6px 2px;color:#fff;text-align:center;font-size:11px;text-shadow:0 1px 2px #000;border-radius:4px}
+.shortcut.sel{background:rgba(255,255,255,.18);outline:1px solid rgba(255,255,255,.35)}
+.taskbar{display:flex;align-items:center;justify-content:center;gap:4px;height:48px;margin:0 -14px;background:rgba(32,32,32,.94);border-top:1px solid #3a3a3a}
+.taskbar b{display:grid;place-items:center;width:40px;height:40px;border-radius:4px}
+.taskbar b.on{background:rgba(255,255,255,.08);position:relative}
+.taskbar b.on::after{content:"";position:absolute;bottom:2px;width:16px;height:3px;border-radius:2px;background:#60cdff}
+.ghost{width:24px;height:24px;border-radius:4px;background:#5c6370}
+.taskbar.light{background:rgba(243,243,243,.96);border-top-color:#ddd}
+@media (max-width:760px){.top{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<div class="top">
+<div class="hero">${img(384)}</div>
+<div class="side">
+<div class="box"><h2>16 AND 32 PX, PIXEL BY PIXEL</h2><div class="zoom"><canvas width="16" height="16" data-s="16"></canvas><canvas width="32" height="32" data-s="32"></canvas><canvas class="l" width="16" height="16" data-s="16"></canvas><canvas class="l" width="32" height="32" data-s="32"></canvas></div></div>
+<div class="box"><h2>WINDOWS</h2><div class="win">
+<div class="titlebar">${img(16)}<span>${label}</span><i>–▢✕</i></div>
+<div class="desk"><div class="shortcut sel">${img(48)}<span>${label}</span></div><div class="shortcut">${img(48)}<span>${label}</span></div></div>
+<div class="taskbar"><b><span class="ghost"></span></b><b><span class="ghost"></span></b><b class="on">${img(24)}</b><b><span class="ghost"></span></b></div>
+<div class="taskbar light"><b><span class="ghost"></span></b><b class="on">${img(24)}</b><b><span class="ghost"></span></b></div>
+</div></div>
+</div>
+</div>
+<div class="box"><h2>SIZES ON DARK</h2>${row("dark")}</div>
+<div class="box"><h2>SIZES ON LIGHT</h2>${row("light")}</div>
+</main>
+<script>
+const im = new Image();
+im.onload = () => { for (const c of document.querySelectorAll("canvas[data-s]")) { const s = +c.dataset.s; const x = c.getContext("2d"); x.imageSmoothingQuality = "high"; x.drawImage(im, 0, 0, s, s); } };
+im.src = ${JSON.stringify(src)};
+</script>
+</body>
+</html>
+`;
+}
+
+module.exports.iconPage = iconPage;

@@ -276,12 +276,13 @@ const KINDS = [
   { id: "page", label: "Page", hint: "One page in HTML, CSS and JS.", title: "Weather card", task: "Build a weather card for one city with a 5 day forecast. Plain HTML, CSS and JS. It should look good at 360 px and 1280 px wide." },
   { id: "website", label: "Website", hint: "A whole site with pages, styles, scripts and images. Agents build it in a folder and send the folder.", title: "Bakery website", task: "Make a website for a small bakery: a home page, a menu page and a contact page, with a shared header and footer. It must work on a phone and on a 1280 px screen." },
   { id: "model", label: "3D model", hint: "A 3D model made in Blender. Agents use the blender tools of the jdebate server and send a .glb, renders and Roblox files. You compare each with the current version and approve or deny it.", title: "Dungeon gate redesign", task: "Redesign the dungeon portcullis gate for Boss Dungeons in Blender. Stone arch, iron bars, brass trim. Under 60 parts' worth of detail, each mesh under 20,000 triangles." },
+  { id: "icon", label: "App icon", hint: "An app icon. Agents send only an SVG. JDebate shows each one large, at every Windows size on dark and light, and in a taskbar and desktop shortcut.", title: "App icon redesign", task: "Redesign the app icon for JNotes. Keep it bold and simple so it still reads at 16 px in the taskbar." },
   { id: "video", label: "Video", hint: "A clip. Agents send an animation page that JDebate records, or a video file they made.", title: "30 second product demo", task: "Make a 30 second demo video for JVoice. Show what it does in three steps, with large readable text and a clear ending." },
 ];
 const kindOf = (id) => KINDS.find((k) => k.id === id) || KINDS[0];
 const SIZES = [["1280x720", "Wide (16:9)"], ["1080x1920", "Tall (9:16)"], ["1080x1080", "Square"]];
 const sizeName = (s) => (SIZES.find((x) => x[0] === s) || [s, s])[1];
-const kindLine = (b) => (b.kind === "model" ? "3D model" : b.kind === "website" ? "Website" : b.kind === "video" ? "Video, " + b.video_seconds + " s, " + sizeName(b.video_size).toLowerCase() : "Page");
+const kindLine = (b) => (b.kind === "icon" ? "App icon" : b.kind === "model" ? "3D model" : b.kind === "website" ? "Website" : b.kind === "video" ? "Video, " + b.video_seconds + " s, " + sizeName(b.video_size).toLowerCase() : "Page");
 
 function seg(items, value, onpick, label, role) {
   return h("div", { class: "seg", role: role || "group", "aria-label": label }, items.map(([k, text, aria]) =>
@@ -459,6 +460,7 @@ function agentPrompt(b) {
   const what = b.kind === "website"
     ? " It is a website: build it in a folder and send the folder."
     : b.kind === "video" ? " It is a " + b.video_seconds + " second video: send an animation page or a video file you made."
+    : b.kind === "icon" ? " It is an app icon battle: send only the icon as an SVG, no page around it."
     : b.kind === "model" ? " It is a 3D model battle: look at the current version first, build your model in Blender with the jdebate blender_* tools, and send the folder with the .glb, renders, Roblox files and README.md." : "";
   return "Join JDebate battle " + battleId(b) + " (\"" + b.title + "\")." + what + " Use the jdebate MCP tools: read the task with battle_read " + battleId(b) + ", build your entry yourself from scratch, then send it with prepare_submission and submit. Do not copy, fork or clone anyone else's work.";
 }
@@ -945,12 +947,15 @@ function frame(id, label, view) {
   return box;
 }
 
+
 function card(e) {
   const b = battleData.battle;
   return h("article", { class: "panel ecard" + (b.winner_id === e.id ? " won" : ""), "data-entry": e.id },
     h("span", { class: "ribbon" }, icon(I.star, 13, true), "Winner"),
-    h("div", { class: "thumb" + (b.kind === "video" || b.kind === "model" ? " dark" : "") },
-      b.kind === "model"
+    h("div", { class: "thumb" + (b.kind === "video" || b.kind === "model" || b.kind === "icon" ? " dark" : "") },
+      b.kind === "icon"
+        ? h("div", { class: "frame-box icon-thumb" }, h("img", { src: previewUrl(e.id, "icon.svg"), alt: "", width: "150", height: "150", decoding: "async" }), h("img", { src: previewUrl(e.id, "icon.svg"), alt: "", width: "32", height: "32", decoding: "async" }), h("img", { src: previewUrl(e.id, "icon.svg"), alt: "", width: "16", height: "16", decoding: "async" }))
+        : b.kind === "model"
         ? (firstImage(e.files) ? h("img", { class: "thumb-img", src: previewUrl(e.id, firstImage(e.files).path) + "?w=480", alt: "", loading: "lazy", decoding: "async" }) : h("div", { class: "frame-box" }, icon(I.cube, 32)))
         : frame(e.id, "Entry " + e.num + ": " + e.title, viewOf(b, { card: true })),
       h("button", { class: "over", "aria-label": "Open entry " + e.num, onclick: () => go("entry:" + e.id) }, h("span", {}, icon(I.open, 14), "Open entry"))),
@@ -1102,6 +1107,7 @@ function notesView(e, b) {
 
 function entryTabs(e) {
   if (e.format === "model") return [["compare", "Old and new", ""], ["readme", "README", lines(e.html)], ["files", "Files", e.files.length], ["notes", "Notes", ""]];
+  if (e.format === "icon") return [["svg", "SVG", lines(e.html)], ["notes", "Notes", ""]];
   if (e.format === "site") return [["files", "Files", e.files.length], ["notes", "Notes", ""]];
   if (e.format === "video") return [e.extra ? ["extra", "Source", lines(e.extra)] : null, ["notes", "Notes", ""]].filter(Boolean);
   return [["html", "HTML", lines(e.html)], ["css", "CSS", lines(e.css)], ["js", "JS", lines(e.js)], ["notes", "Notes", ""]];
@@ -1150,14 +1156,15 @@ function entryPage() {
   const b = entryBattle && entryBattle.battle;
   const tabs = entryTabs(e);
   if (!tabs.some(([k]) => k === tab)) tab = tabs[0][0];
-  const devices = b && (b.kind === "video" || b.kind === "model") ? [] : b && b.kind === "website" ? [["fit", "Desktop"], ["phone", "Phone"]] : [["fit", "Fit"], ["tablet", "Tablet"], ["phone", "Phone"]];
+  const devices = b && (b.kind === "video" || b.kind === "model" || b.kind === "icon") ? [] : b && b.kind === "website" ? [["fit", "Desktop"], ["phone", "Phone"]] : [["fit", "Fit"], ["tablet", "Tablet"], ["phone", "Phone"]];
   if (!devices.some(([k]) => k === device)) device = "fit";
   // Built once per entry and view; the head is redrawn around the running frame.
   const shape = [eid, tab, device, stacked, fileOpen, fileText && fileText.path].join(":");
   if (!mounted || mounted.eid !== eid || mounted.shape !== shape || !$main.contains(mounted.root)) {
     const parts = { head: h("div"), flash: h("div", { class: "stack pad" }) };
     const preview = frame(e.id, e.title, viewOf(b, { device, phone: device === "phone" }));
-    const copyable = tab !== "notes" && tab !== "files" && e[tab];
+    const code = (k) => (k === "svg" ? e.html : e[k]);
+    const copyable = tab !== "notes" && tab !== "files" && code(tab);
     const left = h("section", { class: "pane" },
       h("div", { class: "pbar" },
         h("span", { class: "title", text: e.format === "model" ? "3D view" : "Preview" }),
@@ -1166,13 +1173,13 @@ function entryPage() {
           h("button", { class: "btn icon quiet", "aria-label": "Reload preview", title: "Reload preview", onclick: () => preview.reload() }, icon(I.reload, 15)),
           h("button", { class: "btn icon quiet", "aria-label": "Full screen", title: "Full screen (F)", "data-fullscreen": "", onclick: () => preview.fullscreen() }, icon(I.full, 15)),
           h("button", { class: "btn icon quiet", "aria-label": stacked ? "Side by side" : "Stack panes", title: stacked ? "Side by side" : "Stack panes", onclick: () => { stacked = !stacked; render(); } }, icon(stacked ? I.cols : I.rows, 15)))),
-      h("div", { class: "stage" + (b && (b.kind === "video" || b.kind === "model") ? " dark" : "") }, preview));
+      h("div", { class: "stage" + (b && (b.kind === "video" || b.kind === "model" || b.kind === "icon") ? " dark" : "") }, preview));
     const right = h("section", { class: "pane" },
       h("div", { class: "pbar" },
         h("div", { class: "tabs", role: "tablist", "aria-label": "Entry" }, tabs.map(([k, label, count]) =>
           h("button", { type: "button", role: "tab", "aria-selected": String(tab === k), onclick: () => { tab = k; render(); } }, label, count !== "" ? h("small", { text: String(count) }) : null))),
-        h("div", { class: "right" }, copyable ? h("button", { class: "btn small quiet", onclick: () => act(() => api.copy(e[tab]), tab.toUpperCase() + " copied.") }, icon(I.copy, 14), "Copy") : null)),
-      tab === "compare" ? compareView(e, b) : tab === "readme" ? (e.html ? codeView(e.html) : h("p", { class: "empty", text: "No README.md in this entry." })) : tab === "notes" ? notesView(e, b) : tab === "files" ? filesView(e) : e[tab] ? codeView(e[tab]) : h("div", { class: "empty grow" }, h("h3", { text: "No " + tab.toUpperCase() }), h("p", { text: "This entry has no " + tab.toUpperCase() + "." })));
+        h("div", { class: "right" }, copyable ? h("button", { class: "btn small quiet", onclick: () => act(() => api.copy(code(tab)), tab.toUpperCase() + " copied.") }, icon(I.copy, 14), "Copy") : null)),
+      tab === "compare" ? compareView(e, b) : tab === "readme" ? (e.html ? codeView(e.html) : h("p", { class: "empty", text: "No README.md in this entry." })) : tab === "notes" ? notesView(e, b) : tab === "files" ? filesView(e) : code(tab) ? codeView(code(tab)) : h("div", { class: "empty grow" }, h("h3", { text: "No " + tab.toUpperCase() }), h("p", { text: "This entry has no " + tab.toUpperCase() + "." })));
     const gutter = h("div", { class: "gutter", role: "separator", tabindex: "0", "aria-label": "Resize panes", "aria-valuenow": String(split), "aria-valuemin": "20", "aria-valuemax": "80", title: "Drag to resize. Double-click to reset." });
     const sp = h("div", { class: "split" + (stacked ? " stacked" : "") }, left, gutter, right);
     sp.style.setProperty("--split", split + "%");
@@ -1202,6 +1209,8 @@ function entryPage() {
   mounted.headSig = hsig;
   const record = e.format === "model"
     ? reviewButtons(e, false)
+    : e.format === "icon"
+    ? h("button", { class: "btn quiet", disabled: busy, title: "Copies the SVG to paste into build/icon.svg", onclick: () => act(() => api.copy(e.html), "SVG copied.") }, icon(I.copy, 15), "Copy SVG")
     : e.format === "video"
     ? h("button", { class: "btn quiet", disabled: busy, title: "Opens the video in your video player", onclick: () => act(() => api.entryPlay(e.id), (file) => "Opened in your video player: " + file) }, icon(I.video, 15), "Play video")
     : h("button", { class: "btn quiet", disabled: busy, title: recordHint(b), onclick: () => { savingVideo = true; act(() => api.entryVideo(e.id), (file) => "Video saved: " + file).finally(() => { savingVideo = false; render(); }); } }, icon(I.video, 15), savingVideo ? "Saving video (" + recordSeconds(b) + " s)…" : "Save video");

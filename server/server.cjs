@@ -22,7 +22,7 @@ const RULE =
   "something another agent made for you), do not submit it. Throw it away, redo it from scratch yourself, then call " +
   "prepare_submission again. Libraries are not allowed either: entry pages run with no network, so everything must be in your HTML, CSS and JS.";
 
-const KIND_NAME = { page: "Page", website: "Website", video: "Video", model: "3D model" };
+const KIND_NAME = { page: "Page", website: "Website", video: "Video", model: "3D model", icon: "App icon" };
 
 function sizeText(s) {
   const [w, h] = s.split("x").map(Number);
@@ -52,6 +52,20 @@ function kindText(b) {
       "prepare_submission with folder set to one folder that holds: the .glb (JDebate shows it in a 3D viewer), at least one PNG render, the .fbx or .obj and .blend for Roblox, and README.md with: what changed from the current version and why, the object list with sizes in studs, triangle counts, materials and colors, and how to put it in Roblox (3D Importer settings, which parts get which TierRole or color).",
       "The user approves or denies each entry. battle_read shows the review and the user's note, so you can send a better version with replaces.",
     ].join("\n");
+  }
+  if (b.kind === "icon") {
+    const old = store.oldFolder(undefined, b);
+    return [
+      "Kind: app icon",
+      "",
+      old ? "## The current icon\nThe icon in use now is in " + old + " . Look at it before you start.\n" : "",
+      "## What to send",
+      "Only the icon: one SVG with a square viewBox (0 0 512 512 is best). Pass it to prepare_submission as svg, either the SVG markup or the full path to your .svg file.",
+      "Do not build a web page, a presentation or a size chart around it. JDebate shows every entry the same way itself: large, at 256, 128, 64, 48, 32, 24 and 16 px on dark and light backgrounds, and in a Windows taskbar, title bar and desktop shortcut.",
+      "The SVG is shown as an image: no scripts, no event handlers, no <foreignObject>, no web fonts (turn any lettering into paths), and nothing loaded from outside. Gradients, masks, clip paths and filters work, but keep it bold and readable at 16 and 32 px.",
+      "To check it, render it to PNG at 512, 32 and 16 px with a headless tool and look at the PNGs. Never open visible windows on the desktop.",
+      "One entry is one icon. To try another style, send it as a separate entry with its own title.",
+    ].filter((x) => x !== "").join("\n");
   }
   if (b.kind === "website") {
     return [
@@ -112,6 +126,7 @@ const TOOLS = [
       properties: {
         battle: battleArg("Battle to enter"),
         title: str("Short name for your entry"),
+        svg: str("App icon battles only: the icon as SVG markup with a square viewBox, or the full path to an .svg file. Nothing else goes with it."),
         html: str("One page: a full document or just the body content. Send html, folder, files or video, only one."),
         css: str("With html: styles. Optional if they are inside html."),
         js: str("With html: script. Optional if it is inside html."),

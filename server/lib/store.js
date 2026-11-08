@@ -24,7 +24,7 @@ const DRAFT_MINUTES = 30;
 // video_size, sent as an animation page or as a finished video file.
 // model: a 3D model made in Blender (a .glb, PNG renders, Roblox import
 // files), shown next to the battle's current version for approve or deny.
-const KINDS = ["page", "website", "video", "model"];
+const KINDS = ["page", "website", "video", "model", "icon"];
 const REVIEWS = ["", "approved", "denied"];
 const VIDEO_SIZES = ["1280x720", "1080x1920", "1080x1080"];
 
@@ -495,7 +495,37 @@ const given = (v) => v !== undefined && v !== null && v !== "";
 //   video: video (a path to an MP4 or WebM file) and source (how it was made, as code)
 // Files are stored before the battle is checked; a refused entry leaves them
 // unused in blobs, where an identical later file reuses them.
+// An icon entry: one SVG, as markup or a path to an .svg file. It is shown
+// by JDebate itself (in <img>, so nothing in it runs), so it must stand alone:
+// a square viewBox, no scripts, no event handlers, nothing from outside.
+const MAX_SVG = 300000;
+function iconSvg(v) {
+  let t = text(v, "svg", 1000000, { raw: true }).trim();
+  if (!t.startsWith("<") && /\.svg$/i.test(t)) {
+    if (!fs.existsSync(t)) throw new Error("There is no file " + t + ". Pass the SVG markup or the full path to an .svg file.");
+    t = fs.readFileSync(t, "utf8").trim();
+  }
+  t = t.replace(/^\uFEFF/, "").replace(/^<\?xml[^>]*\?>\s*/i, "").replace(/^<!--[\s\S]*?-->\s*/g, "").replace(/^<!DOCTYPE[^>]*>\s*/i, "");
+  if (t.length > MAX_SVG) throw new Error("The SVG is longer than " + MAX_SVG + " characters. Simplify the paths.");
+  if (!/^<svg[\s>]/i.test(t) || !/<\/svg>\s*$/i.test(t)) throw new Error("svg must be one SVG document: it starts with <svg and ends with </svg>. Send only the icon, no HTML page around it.");
+  const vb = /<svg[^>]*\sviewBox\s*=\s*["']\s*([-\d.]+)[\s,]+([-\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)\s*["']/i.exec(t);
+  if (!vb) throw new Error("The <svg> needs a viewBox, e.g. viewBox=\"0 0 512 512\".");
+  if (Number(vb[3]) !== Number(vb[4])) throw new Error("App icons are square. The viewBox is " + vb[3] + " by " + vb[4] + ".");
+  if (!/<svg[^>]*\sxmlns\s*=\s*["']http:\/\/www\.w3\.org\/2000\/svg["']/i.test(t)) t = t.replace(/^<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+  if (/<script[\s>]/i.test(t)) throw new Error("An icon cannot have <script>.");
+  if (/<foreignObject[\s>]/i.test(t)) throw new Error("An icon cannot have <foreignObject>. Draw it with SVG shapes.");
+  if (/\son[a-z]+\s*=/i.test(t)) throw new Error("An icon cannot have event handlers (onload, onclick and so on).");
+  if (/(?:xlink:)?href\s*=\s*["']\s*(?!#|data:image\/)/i.test(t) || /url\(\s*["']?\s*(?!#|data:image\/)/i.test(t) || /@import/i.test(t)) throw new Error("An icon cannot load anything from outside. Links may only point inside the SVG (#id) or be data:image URLs.");
+  return t;
+}
+
 function work(home, input, kind) {
+  if (kind === "icon") {
+    if (!given(input.svg)) throw new Error("This is an app icon battle. Send svg: the icon as SVG markup (or the full path to an .svg file), with a square viewBox. JDebate shows it at every size itself, so do not build a page around it.");
+    if (given(input.html) || given(input.folder) || given(input.files) || given(input.video) || given(input.css) || given(input.js)) throw new Error("An app icon battle takes only svg. JDebate makes the preview page itself.");
+    return { format: "icon", html: iconSvg(input.svg), css: "", js: "", extra: "", files: [] };
+  }
+  if (given(input.svg)) throw new Error("svg is only for app icon battles. This battle is a " + kind + " battle.");
   if (kind === "model") {
     if (!given(input.folder)) throw new Error("This is a 3D model battle. Send folder: the full path to a folder with your .glb, PNG renders, and .fbx/.obj, .blend and README.md. blender_export and blender_render write them for you.");
     if (given(input.html) || given(input.files) || given(input.video) || given(input.css) || given(input.js)) throw new Error("A 3D model battle takes only folder.");
@@ -543,6 +573,7 @@ function prepare(home, input) {
     if (b.status !== "open") throw new Error("Battle " + b.num + " is closed. It takes no more entries.");
     if (c.format === "video" && b.kind !== "video") throw new Error("Battle " + b.num + " is a " + b.kind + " battle. Video files go in video battles; send html, folder or files.");
     if ((c.format === "model") !== (b.kind === "model")) throw new Error("Battle " + b.num + " changed kind. Call battle_read and send again.");
+    if ((c.format === "icon") !== (b.kind === "icon")) throw new Error("Battle " + b.num + " changed kind. Call battle_read and send again.");
     c.media = mediaOf(c);
     let replaces = null;
     if (input.replaces !== undefined && input.replaces !== null) {

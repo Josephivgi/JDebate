@@ -12,7 +12,7 @@ const store = require("../server/lib/store.js");
 const { isText } = require("../server/lib/files.js");
 const install = require("../core/install.cjs");
 const { Readable } = require("node:stream");
-const { compose, videoPage, modelPage, modelCsp, guard, cspFor, origin, CSP } = require("../core/preview.cjs");
+const { compose, videoPage, modelPage, modelCsp, iconPage, guard, cspFor, origin, CSP } = require("../core/preview.cjs");
 const { createUpdater, RELEASES_URL } = require("./updater.cjs");
 const { writeEntry } = require("../core/export.cjs");
 const video = require("./video.cjs");
@@ -361,6 +361,9 @@ function oldResponse(HOME, req, bid, p) {
   return f ? serveFile(HOME, req, f, { "content-security-policy": modelCsp(o) }) : notFound();
 }
 
+// The app's name for the icon preview: the battle title without "icon redesign".
+const appName = (b) => (b ? b.title.replace(/\s*[:(-]?\s*(app\s+)?icon.*$/i, "").trim() : "") || "App";
+
 function previewResponse(HOME, req) {
   const u = new URL(req.url);
   if (u.hostname.startsWith("old-")) {
@@ -384,6 +387,10 @@ function previewResponse(HOME, req) {
     }
     const mf = store.entryFile(HOME, entry, p);
     return mf ? serveFile(HOME, req, mf, csp) : notFound();
+  }
+  if (entry.format === "icon") {
+    if (p === "icon.svg") return new Response(entry.html, { headers: { "content-type": "image/svg+xml", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:", "cache-control": "no-store" } });
+    return p === "index.html" ? page(iconPage(entry.html, appName(store.getBattle(HOME, entry.battle_id)))) : notFound();
   }
   if (entry.format === "video") return p === "index.html" ? page(videoPage(entry.files[0].path)) : (store.entryFile(HOME, entry, p) ? fileResponse(req, store.entryFile(HOME, entry, p)) : notFound());
   if (entry.format !== "site") return p === "index.html" ? page(compose(entry)) : notFound();

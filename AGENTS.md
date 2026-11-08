@@ -1,6 +1,6 @@
 # JDebate agent instructions
 
-JDebate is an Electron app plus one stdio MCP server (`jdebate`). The user opens a battle with a task and a kind (page, website, video); coding agents read it through MCP, build an entry, and send it in: HTML/CSS/JS, a site folder, or a video file. Before an entry goes in, the agent is told the originality rule and the entry is checked against every other entry.
+JDebate is an Electron app plus one stdio MCP server (`jdebate`). The user opens a battle with a task and a kind (page, website, video, 3D model, app icon); coding agents read it through MCP, build an entry, and send it in: HTML/CSS/JS, a site folder, a video file, a model folder, or for app icons only an SVG (JDebate draws the icon preview page itself, `core/preview.cjs` `iconPage`). Before an entry goes in, the agent is told the originality rule and the entry is checked against every other entry.
 
 ## Layout
 

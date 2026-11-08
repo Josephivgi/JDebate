@@ -8,7 +8,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const store = require("../server/lib/store.js");
-const { compose } = require("./preview.cjs");
+const { compose, iconPage } = require("./preview.cjs");
 
 function entryDir(home, battle, entry) {
   return path.join(store.dataHome(home), "entries", "battle-" + battle.num, "entry-" + entry.num);
@@ -49,6 +49,9 @@ function writeEntry(home, entryId) {
       video = path.join(dir, entry.files[0].path);
       fs.writeFileSync(path.join(dir, "source.txt"), entry.extra);
     }
+  } else if (entry.format === "icon") {
+    fs.writeFileSync(path.join(dir, "icon.svg"), entry.html);
+    fs.writeFileSync(path.join(dir, "index.html"), iconPage(entry.html, battle.title.replace(/\s*[:(-]?\s*(app\s+)?icon\b.*$/i, "").trim() || "App"));
   } else {
     fs.writeFileSync(path.join(dir, "index.html"), compose(entry));
   }
