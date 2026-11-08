@@ -77,7 +77,7 @@ function withDb(home, fn) {
   const db = new DatabaseSync(file);
   let kept = false;
   try {
-    db.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
+    db.exec("PRAGMA busy_timeout=20000; PRAGMA foreign_keys=ON;");
     if (!ready.has(file)) setup(db);
     ready.add(file);
     if (keep) {
@@ -559,6 +559,25 @@ function work(home, input, kind) {
   return { format: "html", html, css, js, extra: "", files: [] };
 }
 
+// The copy check compares with every entry and can take seconds, so it runs
+// on a plain read before the write lock. Inside the lock only entries that
+// came in since are compared, so other agents are not kept waiting.
+function precheck(home, c, skipId) {
+  return withDb(home, (db) => {
+    const all = everyEntry(db, skipId);
+    return { skip: skipId || null, ids: new Set(all.map((x) => x.id)), matches: similarity.compare(c, all) };
+  });
+}
+
+function finishCheck(db, c, skipId, early) {
+  const all = everyEntry(db, skipId);
+  if (!early || early.skip !== (skipId || null)) return describe(similarity.compare(c, all), all);
+  const live = new Set(all.map((x) => x.id));
+  const fresh = all.filter((x) => !early.ids.has(x.id));
+  const m = early.matches.filter((x) => live.has(x.id)).concat(similarity.compare(c, fresh)).sort((a, b) => b.score - a.score);
+  return describe(m, all);
+}
+
 // Step 1 for an agent: check an entry before it goes in. Too close to an
 // entry already in JDebate: refused, no draft. Otherwise a draft is kept
 // for DRAFT_MINUTES and the agent must call submit with it.
@@ -570,6 +589,14 @@ function prepare(home, input) {
   const notes = text(input.notes, "notes", 4000, { optional: true });
   const agent = text(input.agent || input.client || "an agent", "agent", 120);
   const client = String(input.client || "").slice(0, 120);
+  c.media = mediaOf(c);
+  const skip = given(input.replaces) && pre
+    ? withDb(home, (db) => {
+        const o = findEntry(db, pre, input.replaces);
+        return o && input.key && hashKey(input.key) === o.key_hash ? o.id : null;
+      })
+    : null;
+  const early = pre ? precheck(home, c, skip) : null;
   return tx(home, (db) => {
     const b = findBattle(db, input.battle, { byNum: true });
     if (!b) throw new Error("There is no battle " + input.battle + ". Call battles to see the open ones.");
@@ -584,8 +611,7 @@ function prepare(home, input) {
       if (!old || !input.key || hashKey(input.key) !== old.key_hash) throw new Error("Entry " + input.replaces + " in battle " + b.num + " is not yours to replace. Pass the key you got when you submitted it.");
       replaces = old.id;
     }
-    const all = everyEntry(db, replaces);
-    const matches = describe(similarity.compare(c, all), all);
+    const matches = finishCheck(db, c, replaces, early);
     const blocked = matches.some((m) => m.level === "block");
     if (blocked) return { battle: battleRow(db, b), matches, blocked: true, draft: null };
     const id = crypto.randomUUID();
@@ -601,6 +627,12 @@ function prepare(home, input) {
 function submit(home, { draft, howMade, client } = {}) {
   howMade = text(howMade, "how_made", 4000);
   if (howMade.length < 20) throw new Error("how_made is too short. Say in a sentence or two how you made this entry.");
+  const d0 = withDb(home, (db) => db.prepare("SELECT * FROM drafts WHERE id = ?").get(String(draft || "")));
+  let early = null;
+  if (d0 && !d0.used_at) {
+    d0.media = mediaOf(d0);
+    early = precheck(home, d0, d0.replaces);
+  }
   return tx(home, (db) => {
     const d = db.prepare("SELECT * FROM drafts WHERE id = ?").get(String(draft || ""));
     if (!d) throw new Error("No draft " + draft + ". Call prepare_submission first.");
@@ -611,9 +643,8 @@ function submit(home, { draft, howMade, client } = {}) {
     if (!b) throw new Error("That battle is gone.");
     if (b.status !== "open") throw new Error("Battle " + b.num + " closed before the entry came in.");
     if (d.replaces && !db.prepare("SELECT id FROM entries WHERE id = ? AND removed = 0 AND replaced_by IS NULL").get(d.replaces)) throw new Error("The entry this replaces is gone. Call prepare_submission again.");
-    const all = everyEntry(db, d.replaces);
     d.media = mediaOf(d);
-    const matches = describe(similarity.compare(d, all), all);
+    const matches = finishCheck(db, d, d.replaces, early);
     if (matches.some((m) => m.level === "block")) {
       db.prepare("UPDATE drafts SET used_at = ? WHERE id = ?").run(Date.now(), d.id);
       return { blocked: true, matches, entry: null, key: null, battle: battleRow(db, b) };
